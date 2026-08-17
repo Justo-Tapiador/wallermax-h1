@@ -1,7 +1,8 @@
 # Wallermax H1
 
 <p align="center">
-  <video src="docs/render.mp4" autoplay loop muted playsinline width="640" height="360" style="border-radius: 10px; border: 1px solid #333; max-width: 100%;"></video>
+  <video src="docs/render.mp4" type="video/mp4" controls muted loop width="640">
+  </video>
 </p>
 
 
