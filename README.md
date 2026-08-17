@@ -1,9 +1,5 @@
 # Wallermax H1
-
-<p align="center">
-  <video src="docs/render.mp4" type="video/mp4" controls muted loop width="640">
-  </video>
-</p>
+[![Ver demo](docs/cover.jpg)](docs/render.mp4)
 
 
 > **⚠️ BETA PROTOTYPE — NOT PRODUCTION-READY**
