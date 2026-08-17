@@ -1,6 +1,6 @@
 {
   "name": "wallermax-h1",
-  "version": "1.0.0-beta.1",
+  "version": "1.0.0",
   "description": "Wallermax H1 — Beta prototype of a video generator based on 3D scene rendering. Sends prompt + images to an LLM, receives a declarative World Model JSON, and compiles it into an MP4 via Blender + Python.",
   "author": "Justo Tapiador García",
   "license": "MIT",
