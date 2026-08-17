@@ -1,0 +1,19 @@
+# ─── Node / TypeScript ──────────────────────
+node_modules/
+dist/
+*.tsbuildinfo
+*.log
+
+# ─── Wallermax runtime ──────────────────────
+.env
+.wallermax/
+generated/
+output/
+download/*
+!download/.gitkeep
+
+# ─── OS / editor ───────────────────────────
+.DS_Store
+.idea/
+.vscode/
+*.swp

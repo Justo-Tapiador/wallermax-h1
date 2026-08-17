@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Wallermax H1 World Model",
+  "description": "Unified declarative scene description consumed by the Blender compiler. Combines v2 (scene + camera + lights + physics) with v3 (image-derived reconstruction) and the new final-image aesthetic block.",
+  "type": "object",
+  "required": ["version", "world", "entities", "relationships", "events"],
+  "properties": {
+    "version": { "type": "string" },
+    "world": {
+      "type": "object",
+      "required": ["units", "coordinate_system", "render"],
+      "properties": {
+        "units": { "type": "string", "default": "meters" },
+        "coordinate_system": { "type": "string", "default": "Z-up, right-handed" },
+        "environment": {
+          "type": "object",
+          "properties": {
+            "gravity": { "type": "array", "items": { "type": "number" }, "default": [0, 0, -9.81] },
+            "ambient_color": { "type": "array", "items": { "type": "number" } },
+            "depth_status": { "type": "string" },
+            "depth_scale": { "type": "string" },
+            "depth_message": { "type": "string" }
+          }
+        },
+        "render": {
+          "type": "object",
+          "required": ["width", "height", "fps", "duration"],
+          "properties": {
+            "width": { "type": "integer", "minimum": 16 },
+            "height": { "type": "integer", "minimum": 16 },
+            "fps": { "type": "integer", "minimum": 1, "maximum": 240 },
+            "duration": { "type": "number", "minimum": 0.1 },
+            "engine": { "type": "string", "enum": ["BLENDER_EEVEE_NEXT", "CYCLES"], "default": "BLENDER_EEVEE_NEXT" },
+            "samples": { "type": "integer", "minimum": 1, "default": 64 }
+          }
+        },
+        "aesthetic": {
+          "type": "object",
+          "description": "Optional aesthetic guidance extracted from a final / target image. Drives color grading, mood and shot style.",
+          "properties": {
+            "source_image": { "type": "string" },
+            "palette": { "type": "array", "items": { "type": "array", "items": { "type": "number" } } },
+            "color_temperature_k": { "type": "number" },
+            "mood": { "type": "string" },
+            "style_tags": { "type": "array", "items": { "type": "string" } },
+            "grain": { "type": "number" },
+            "vignette": { "type": "number" },
+            "bloom": { "type": "number" },
+            "exposure_ev": { "type": "number" }
+          }
+        }
+      }
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "provenance", "confidence"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Za-z0-9_\\-]+$" },
+          "type": {
+            "type": "string",
+            "description": "room | sphere | ball | box | cube | cylinder | plane | light | camera | empty | group"
+          },
+          "name": { "type": "string" },
+          "provenance": { "type": "string", "enum": ["observed", "user_defined", "inferred", "creative"] },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "locked": { "type": "boolean" },
+          "parent": { "type": ["string", "null"] },
+          "transform": {
+            "type": "object",
+            "properties": {
+              "position": { "type": "array", "items": { "type": "number" } },
+              "rotation": { "type": "array", "items": { "type": "number" }, "description": "Euler XYZ in degrees" },
+              "scale": { "type": "array", "items": { "type": "number" } }
+            }
+          },
+          "geometry": {
+            "type": "object",
+            "properties": {
+              "shape": { "type": "string", "enum": ["sphere", "box", "cylinder", "plane", "mesh", "room", "custom"] },
+              "radius": { "type": "number" },
+              "dimensions": { "type": "array", "items": { "type": "number" } },
+              "depth": { "type": "number" },
+              "vertices": { "type": "array" },
+              "subdivisions": { "type": "integer" }
+            }
+          },
+          "material": {
+            "type": "object",
+            "properties": {
+              "base_color": { "type": "array", "items": { "type": "number" }, "description": "Linear RGB, 0-1" },
+              "roughness": { "type": "number", "minimum": 0, "maximum": 1 },
+              "metallic": { "type": "number", "minimum": 0, "maximum": 1 },
+              "ior": { "type": "number" },
+              "emission": { "type": "array", "items": { "type": "number" } },
+              "emission_strength": { "type": "number" },
+              "alpha": { "type": "number", "minimum": 0, "maximum": 1 },
+              "pattern": { "type": "string", "enum": ["solid", "checker", "noise", "gradient", "brick"] },
+              "pattern_scale": { "type": "number" },
+              "texture_image": { "type": "string", "description": "Path or URL of an albedo texture" },
+              "normal_image": { "type": "string" },
+              "roughness_image": { "type": "string" }
+            }
+          },
+          "light": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["POINT", "AREA", "SUN", "SPOT"] },
+              "power": { "type": "number", "minimum": 0 },
+              "color": { "type": "array", "items": { "type": "number" } },
+              "color_temperature_k": { "type": "number" },
+              "size": { "type": "number" },
+              "shape": { "type": "string", "enum": ["DISK", "RECTANGLE", "SQUARE"] },
+              "beam_angle": { "type": "number" },
+              "softness": { "type": "number" }
+            }
+          },
+          "camera": {
+            "type": "object",
+            "properties": {
+              "lens": { "type": "number", "minimum": 1 },
+              "sensor_width": { "type": "number" },
+              "projection": { "type": "string", "enum": ["perspective", "orthographic"] },
+              "target": { "type": "string", "description": "Entity id to track / look_at" },
+              "look_at": { "type": "array", "items": { "type": "number" } },
+              "fov_deg": { "type": "number" },
+              "dof_focus_distance": { "type": "number" },
+              "dof_fstop": { "type": "number" }
+            }
+          },
+          "physics": {
+            "type": "object",
+            "properties": {
+              "rigid_body": {
+                "type": "object",
+                "properties": {
+                  "mass": { "type": "number", "minimum": 0 },
+                  "restitution": { "type": "number", "minimum": 0, "maximum": 1 },
+                  "friction": { "type": "number", "minimum": 0, "maximum": 1 },
+                  "type": { "type": "string", "enum": ["ACTIVE", "PASSIVE"] }
+                }
+              }
+            }
+          },
+          "behavior": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["static", "look_at", "follow", "orbit", "dolly", "crane", "pan", "tilt", "custom"] },
+              "target": { "type": "string" },
+              "duration": { "type": "number" },
+              "angle": { "type": "number" },
+              "speed": { "type": "number" },
+              "path": { "type": "array" }
+            }
+          },
+          "metadata": { "type": "object" }
+        }
+      }
+    },
+    "relationships": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "from": { "type": "string" },
+          "to": { "type": "string" },
+          "type": { "type": "string" },
+          "weight": { "type": "number" }
+        }
+      }
+    },
+    "constraints": { "type": "array" },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "time": { "type": "number" },
+          "target": { "type": "string" },
+          "action": { "type": "object" }
+        }
+      }
+    }
+  }
+}

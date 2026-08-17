@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Wallermax H1 — Procedural 3D scene compiler</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230b0d12'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23ff5a5a'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">W</span>
+        <div class="brand-text">
+          <h1>Wallermax <span class="accent">H1</span></h1>
+          <p class="tagline">Text · image · final image → semantic World Model → Blender → MP4</p>
+        </div>
+      </div>
+      <nav class="topbar-actions">
+        <a href="https://github.com/" target="_blank" rel="noopener" class="ghost-btn">Docs</a>
+        <button id="btn-health" class="ghost-btn">Health</button>
+        <button id="btn-python-check" class="ghost-btn">Python check</button>
+        <span id="provider-badge" class="provider-badge">provider: …</span>
+      </nav>
+    </header>
+
+    <main class="layout">
+      <!-- ─────────────── Left column: form ─────────────── -->
+      <section class="panel form-panel">
+        <h2 class="panel-title">1 · Inputs</h2>
+
+        <div class="field">
+          <label for="prompt">Prompt</label>
+          <textarea id="prompt" rows="8" placeholder="Describe the scene: room, objects, lighting, camera, behavior…"></textarea>
+          <p class="hint">Plain English. The LLM will turn this into a declarative World Model.</p>
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label for="referenceImage">Reference image <span class="opt">optional</span></label>
+            <div class="dropzone" id="dz-ref">
+              <input type="file" id="referenceImage" accept="image/*" hidden />
+              <p>Drop a reference image<br /><small>Used to reconstruct the visible 3D scene.</small></p>
+              <span class="filename"></span>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="finalImage">Final image <span class="opt">optional</span></label>
+            <div class="dropzone" id="dz-final">
+              <input type="file" id="finalImage" accept="image/*" hidden />
+              <p>Drop a target / look-dev image<br /><small>Extracts camera, lighting, palette, textures.</small></p>
+              <span class="filename"></span>
+            </div>
+          </div>
+        </div>
+
+        <h2 class="panel-title">2 · Render settings</h2>
+        <div class="grid-4">
+          <div class="field">
+            <label for="width">Width</label>
+            <input type="number" id="width" value="640" min="16" step="16" />
+          </div>
+          <div class="field">
+            <label for="height">Height</label>
+            <input type="number" id="height" value="360" min="16" step="16" />
+          </div>
+          <div class="field">
+            <label for="fps">FPS</label>
+            <input type="number" id="fps" value="24" min="1" max="240" />
+          </div>
+          <div class="field">
+            <label for="duration">Duration (s)</label>
+            <input type="number" id="duration" value="2" min="0.1" step="0.5" />
+          </div>
+        </div>
+        <div class="grid-3">
+          <div class="field">
+            <label for="engine">Render engine</label>
+            <select id="engine">
+              <option value="BLENDER_EEVEE_NEXT" selected>EEVEE Next</option>
+              <option value="CYCLES">Cycles</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="samples">Cycles samples</label>
+            <input type="number" id="samples" value="16" min="1" max="4096" />
+          </div>
+          <div class="field">
+            <label for="provider">LLM provider</label>
+            <select id="provider">
+              <option value="mock">mock (ignores prompt — testing only)</option>
+              <option value="openai">openai (real LLM — needs API key)</option>
+              <option value="zai">zai (sandbox LLM)</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="mock-warning" class="mock-warning" hidden>
+          <strong>⚠️ Mock provider is active.</strong>
+          The mock provider <em>ignores your prompt and images</em> and always returns
+          a ball-in-checkerboard-room scene. To use your prompt, select <strong>openai</strong>
+          (needs <code>OPENAI_API_KEY</code> in <code>.env</code>) or <strong>zai</strong>.
+        </div>
+
+        <div class="field checkbox">
+          <input type="checkbox" id="skipBlender" />
+          <label for="skipBlender">Skip Blender (produce World Model only)</label>
+        </div>
+
+        <div class="actions">
+          <button id="btn-run" class="primary-btn">Run pipeline</button>
+          <button id="btn-analyze-final" class="ghost-btn">Analyze final image</button>
+        </div>
+
+        <details class="advanced">
+          <summary>Advanced</summary>
+          <div class="field">
+            <label for="model">Model override (optional)</label>
+            <input type="text" id="model" placeholder="e.g. gpt-4o-mini" />
+          </div>
+          <div class="field">
+            <label for="systemPromptExtra">Extra system prompt (optional)</label>
+            <textarea id="systemPromptExtra" rows="3" placeholder="Additional instructions appended to the scene compiler system prompt."></textarea>
+          </div>
+        </details>
+      </section>
+
+      <!-- ─────────────── Right column: status / output ─────────────── -->
+      <section class="panel output-panel">
+        <h2 class="panel-title">
+          3 · Pipeline
+          <span id="frame-counter" class="frame-counter" hidden></span>
+        </h2>
+
+        <div class="progress-wrap">
+          <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
+          <div class="progress-meta">
+            <span id="progress-stage">idle</span>
+            <span id="progress-pct">0%</span>
+          </div>
+        </div>
+
+        <div class="job-tabs">
+          <button class="tab-btn active" data-tab="world">World Model</button>
+          <button class="tab-btn" data-tab="recon">Reconstruction</button>
+          <button class="tab-btn" data-tab="final">Final Image</button>
+          <button class="tab-btn" data-tab="report">Report</button>
+          <button class="tab-btn" data-tab="render">Render</button>
+          <button class="tab-btn" data-tab="logs">Logs</button>
+          <button class="tab-btn" data-tab="jobs">Jobs</button>
+        </div>
+
+        <div class="tab-content" id="tab-world">
+          <pre class="json-view" id="world-json">No world model yet.</pre>
+        </div>
+        <div class="tab-content hidden" id="tab-recon">
+          <pre class="json-view" id="recon-json">No reconstruction yet.</pre>
+        </div>
+        <div class="tab-content hidden" id="tab-final">
+          <pre class="json-view" id="final-json">No final-image analysis yet.</pre>
+        </div>
+        <div class="tab-content hidden" id="tab-report">
+          <pre class="report-view" id="report-md">No report yet.</pre>
+        </div>
+        <div class="tab-content hidden" id="tab-render">
+          <div class="render-empty" id="render-empty">Run the pipeline with Blender enabled to render an MP4.</div>
+          <video id="render-video" controls hidden></video>
+          <div class="render-links" id="render-links"></div>
+        </div>
+        <div class="tab-content hidden" id="tab-logs">
+          <pre class="logs-view" id="logs-view">No renderer logs yet. Run the pipeline — Blender / fallback output will appear here.</pre>
+        </div>
+        <div class="tab-content hidden" id="tab-jobs">
+          <table class="jobs-table">
+            <thead>
+              <tr><th>ID</th><th>Status</th><th>Stage</th><th>Started</th><th></th></tr>
+            </thead>
+            <tbody id="jobs-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Wallermax H1 · native Node.js + TypeScript · Blender optional</span>
+      <a href="/api/health" target="_blank">/api/health</a>
+    </footer>
+
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

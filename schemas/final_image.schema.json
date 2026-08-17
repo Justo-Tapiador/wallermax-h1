@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Wallermax H1 Final Image Analysis",
+  "description": "Aesthetic / look-dev analysis extracted from a final or target image. Unlike the reconstruction schema, this schema focuses on what the OUTPUT should look like: camera language, lighting mood, palette, material feel, shot style. Used to drive color grading, mood and composition of the rendered MP4.",
+  "type": "object",
+  "required": ["camera", "lighting", "objects", "textures", "palette", "style"],
+  "properties": {
+    "source_image": { "type": "string" },
+    "summary": { "type": "string", "description": "One-paragraph look-dev description of the final image." },
+    "camera": {
+      "type": "object",
+      "required": ["shot_type", "lens_mm_approx"],
+      "properties": {
+        "shot_type": {
+          "type": "string",
+          "enum": ["extreme_wide", "wide", "medium", "medium_close", "close_up", "extreme_close_up", "macro", "establishing", "aerial"]
+        },
+        "lens_mm_approx": { "type": "number", "description": "35mm-equivalent focal length" },
+        "height_m": { "type": "number", "description": "Approximate camera height in meters" },
+        "angle_deg": { "type": "number", "description": "Approximate pitch (tilt) in degrees" },
+        "fov_deg": { "type": "number" },
+        "dof_focus_distance_m": { "type": "number" },
+        "dof_fstop": { "type": "number" },
+        "motion": {
+          "type": "string",
+          "enum": ["static", "slow_pan", "fast_pan", "tilt", "dolly_in", "dolly_out", "crane_up", "crane_down", "orbit", "handheld", "none"]
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "lighting": {
+      "type": "object",
+      "required": ["key_direction", "intensity", "mood"],
+      "properties": {
+        "key_direction": {
+          "type": "string",
+          "enum": ["front", "front_left", "front_right", "side_left", "side_right", "back_left", "back_right", "back", "top", "bottom"]
+        },
+        "intensity": { "type": "string", "enum": ["low", "medium", "high", "very_high"] },
+        "contrast": { "type": "string", "enum": ["flat", "low", "medium", "high", "very_high"] },
+        "color_temperature_k": { "type": "number" },
+        "color_temperature_balance": {
+          "type": "string",
+          "enum": ["warm", "neutral", "cool", "mixed_warm_cool", "duotone"]
+        },
+        "mood": { "type": "string", "enum": ["cheerful", "neutral", "dramatic", "melancholic", "mysterious", "sterile", "romantic", "tense", "epic"] },
+        "shadows": { "type": "string", "enum": ["none", "soft", "medium", "hard", "very_hard"] },
+        "highlight_specularity": { "type": "string", "enum": ["matte", "subtle", "glossy", "mirror"] },
+        "ambient_contribution": { "type": "string", "enum": ["low", "medium", "high"] },
+        "visible_sources": { "type": "array", "items": { "type": "string" } },
+        "notes": { "type": "string" }
+      }
+    },
+    "objects": {
+      "type": "array",
+      "description": "Salient objects detected in the final image with their visual role.",
+      "items": {
+        "type": "object",
+        "required": ["name", "role"],
+        "properties": {
+          "name": { "type": "string" },
+          "role": { "type": "string", "enum": ["hero", "supporting", "background", "environment", "atmosphere"] },
+          "approx_position": { "type": "string", "enum": ["left_third", "center", "right_third", "upper", "lower", "background"] },
+          "approx_scale": { "type": "string", "enum": ["tiny", "small", "medium", "large", "hero"] },
+          "color_hint": { "type": "string" }
+        }
+      }
+    },
+    "textures": {
+      "type": "array",
+      "description": "Material / texture palette observed. Used to drive Blender shaders.",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "base_color": { "type": "array", "items": { "type": "number" }, "description": "Linear RGB 0-1" },
+          "roughness": { "type": "number" },
+          "metallic": { "type": "number" },
+          "pattern": { "type": "string", "enum": ["solid", "checker", "noise", "gradient", "brick", "wood", "fabric", "tile"] },
+          "feeling": { "type": "string", "enum": ["matte", "glossy", "metallic", "glass", "fabric", "organic", "rough"] }
+        }
+      }
+    },
+    "palette": {
+      "type": "object",
+      "required": ["dominant", "accent"],
+      "properties": {
+        "dominant": { "type": "array", "items": { "type": "array", "items": { "type": "number" } }, "description": "Up to 5 dominant linear-RGB colors" },
+        "accent": { "type": "array", "items": { "type": "array", "items": { "type": "number" } } },
+        "overall": { "type": "string", "enum": ["monochromatic", "analogous", "complementary", "triadic", "muted", "vivid"] }
+      }
+    },
+    "style": {
+      "type": "object",
+      "required": ["tags"],
+      "properties": {
+        "tags": { "type": "array", "items": { "type": "string" }, "description": "e.g. cinematic, noir, anime, photorealistic, low-poly, vaporwave" },
+        "era_or_genre": { "type": "string" },
+        "grain": { "type": "number", "minimum": 0, "maximum": 1 },
+        "vignette": { "type": "number", "minimum": 0, "maximum": 1 },
+        "bloom": { "type": "number", "minimum": 0, "maximum": 1 },
+        "exposure_ev": { "type": "number" },
+        "post_processing": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+  }
+}

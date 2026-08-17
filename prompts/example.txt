@@ -1,0 +1,9 @@
+Create a closed cubic room approximately 10 meters on each side. The floor, walls and ceiling are made of a black-and-white checkerboard pattern.
+
+There is a red ball initially near the center of the floor. It should begin moving slowly, accelerate toward the right wall, collide with it, and bounce according to physics.
+
+The room is static. Gravity points downward toward the floor.
+
+Start with a wide establishing shot. Then smoothly follow the ball as it accelerates. Keep the ball clearly visible. After the bounce, make a subtle orbit around the ball.
+
+Be physically plausible. If some information is not observable or explicitly specified, infer only what is necessary and mark those inferences as such. You may propose creative hidden details, but keep them separate from observed and user-defined facts.

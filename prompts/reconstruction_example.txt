@@ -1,0 +1,11 @@
+Reconstruct the visible 3D scene from the reference image.
+
+Preserve the image evidence, but use the following additional information:
+- The room is approximately 6 m wide, 5 m deep and 3 m high.
+- The camera is approximately 1.6 m above the floor.
+- The main window is behind the camera and slightly to the left.
+- A warm artificial light may be present on the right side.
+- If an object is occluded, infer only enough hidden geometry to make the scene coherent.
+- You may propose creative hidden parts, but label them creative and give a confidence.
+- Treat lights as first-class objects. Infer their approximate positions, types, colors, sizes and relative intensity from shadows, highlights and visible luminaires.
+- Do not claim metric accuracy where the image cannot support it.

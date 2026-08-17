@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Wallermax H1 Visual Reconstruction",
+  "description": "Structured hypothesis of the 3D scene that could have produced a reference image. Single-image reconstruction is underdetermined; the schema explicitly preserves confidence and provenance instead of claiming certainty.",
+  "type": "object",
+  "required": ["image_observations", "camera_hypothesis", "entities", "lighting", "ambiguities"],
+  "properties": {
+    "image_observations": {
+      "type": "object",
+      "properties": {
+        "description": { "type": "string" },
+        "visible_regions": { "type": "array" },
+        "shadow_observations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "caster": { "type": "string" },
+              "direction": { "type": "array", "items": { "type": "number" } },
+              "softness": { "type": "number" },
+              "length_hint_m": { "type": "number" }
+            }
+          }
+        },
+        "reflection_observations": { "type": "array" },
+        "occlusions": { "type": "array" }
+      }
+    },
+    "camera_hypothesis": {
+      "type": "object",
+      "properties": {
+        "projection": { "type": "string", "enum": ["perspective", "orthographic", "fisheye"] },
+        "position": { "type": "array", "items": { "type": "number" } },
+        "look_at": { "type": "array", "items": { "type": "number" } },
+        "focal_length_mm": { "type": "number" },
+        "sensor_width_mm": { "type": "number" },
+        "fov_deg": { "type": "number" },
+        "roll_deg": { "type": "number" },
+        "confidence": { "type": "number" }
+      }
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "provenance", "confidence"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "type": "string" },
+          "name": { "type": "string" },
+          "provenance": { "type": "string", "enum": ["observed", "user_defined", "inferred", "creative"] },
+          "confidence": { "type": "number" },
+          "parent": { "type": ["string", "null"] },
+          "transform": { "type": "object" },
+          "geometry": { "type": "object" },
+          "material": { "type": "object" },
+          "metadata": { "type": "object" }
+        }
+      }
+    },
+    "lighting": {
+      "type": "object",
+      "properties": {
+        "global_illumination": {
+          "type": "object",
+          "properties": {
+            "ambient_color": { "type": "array", "items": { "type": "number" } },
+            "ambient_intensity": { "type": "number" },
+            "color_temperature_k": { "type": "number" }
+          }
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["point", "area", "spot", "sun", "emissive_surface", "window_sky"] },
+              "position": { "type": "array", "items": { "type": "number" } },
+              "direction": { "type": "array", "items": { "type": "number" } },
+              "relative_intensity": { "type": "number" },
+              "color": { "type": "array", "items": { "type": "number" } },
+              "color_temperature_k": { "type": "number" },
+              "apparent_size": { "type": "number" },
+              "beam_angle": { "type": "number" },
+              "shadow_softness": { "type": "number" },
+              "visible": { "type": "boolean" }
+            }
+          }
+        },
+        "relationships": { "type": "array" }
+      }
+    },
+    "ambiguities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "topic": { "type": "string" },
+          "description": { "type": "string" },
+          "candidate_hypotheses": { "type": "array" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+Create a cinematic medium shot of a small outdoor scene at dusk.
+
+A small wooden table sits at the left third of the frame, with a single ceramic mug on top. The right third is open negative space showing the distant horizon and a soft warm sunset.
+
+Camera is about 1.4 m high, lens approximately 50 mm, shallow depth of field focused on the mug. There is a gentle slow_pan to the right over 6 seconds.
+
+Lighting is a warm key from camera-left (3200 K) with a cool rim from the horizon (6500 K). The mood is calm and slightly melancholic. Apply a subtle vignette and faint film grain.
+
+Keep it physically plausible and avoid inventing geometry that would break the silhouette. Mark any inferred elements with provenance=inferred and a confidence value.
