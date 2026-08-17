@@ -1,6 +1,5 @@
 # Wallermax H1
-[![Ver demo](docs/cover.jpg)](docs/render.mp4)
-
+![Demo](docs/render.gif)
 
 > **⚠️ BETA PROTOTYPE — NOT PRODUCTION-READY**
 >
