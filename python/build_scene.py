@@ -598,30 +598,49 @@ def apply_behavior(e, o, objs, scene):
         o.keyframe_insert("location", frame=1)
         o.keyframe_insert("rotation_euler", frame=1)
 
-        # A3 (revised): dolly_in/out move forward/backward in CAMERA local space.
-        # Blender cameras look down -Z by default, so forward = (0,0,-1).
-        # crane_up/down move vertically in WORLD space (Z axis) and must NOT
-        # be transformed by the camera rotation (otherwise they would tilt
-        # the camera position along its view axis).
-        local_dir_map = {
-            "dolly_in": Vector((0, 0, -1)),
-            "dolly_out": Vector((0, 0, 1)),
-        }
-        world_dir_map = {
-            "crane_up": Vector((0, 0, 1)),
-            "crane_down": Vector((0, 0, -1)),
-        }
-        if typ in local_dir_map:
+        # A3 (v2): dolly_in/out move forward/backward along the camera's view
+        # direction. Compute the view direction directly from look_at or target
+        # position (more reliable than reading matrix_world, which may be stale
+        # after disabling TRACK_TO due to depsgraph caching).
+        # crane_up/down move vertically in WORLD space (Z axis).
+        # We DO NOT disable the TRACK_TO constraint — we let it continue
+        # tracking the target during the dolly. This is the desired behavior:
+        # the camera moves forward while keeping the target framed.
+        if typ in {"dolly_in", "dolly_out"}:
             distance = float(b.get("distance", 2.0))
-            try:
-                local_rot = o.matrix_world.to_3x3()
-                move = local_rot @ local_dir_map[typ] * distance
-            except Exception:
-                move = local_dir_map[typ] * distance
+            # Determine forward direction in world space.
+            cam_spec = e.get("camera", {}) or {}
+            forward = None
+            # 1. Try camera.look_at
+            look_at = cam_spec.get("look_at")
+            if look_at and len(look_at) >= 3:
+                forward = Vector((float(look_at[0]), float(look_at[1]), float(look_at[2]))) - start_loc
+            # 2. Try behavior.target entity position
+            if (forward is None or forward.length == 0) and target is not None:
+                forward = target.location - start_loc
+            # 3. Try camera.target entity (different field)
+            target_id_cam = cam_spec.get("target")
+            if (forward is None or forward.length == 0) and target_id_cam and target_id_cam in objs:
+                forward = objs[target_id_cam].location - start_loc
+            # 4. Fallback: read matrix_world (may be stale but better than nothing)
+            if forward is None or forward.length == 0:
+                try:
+                    local_rot = o.matrix_world.to_3x3()
+                    forward = local_rot @ Vector((0, 0, -1))
+                except Exception:
+                    forward = Vector((0, 0, -1))
+            # Normalize and apply distance, with sign for in/out.
+            if forward.length > 0:
+                forward.normalize()
+                sign = 1.0 if typ == "dolly_in" else -1.0
+                move = forward * (sign * distance)
+            else:
+                move = Vector((0, 0, 0))
             o.location = start_loc + move
-        elif typ in world_dir_map:
+        elif typ in {"crane_up", "crane_down"}:
             distance = float(b.get("distance", 2.0))
-            move = world_dir_map[typ] * distance
+            sign = 1.0 if typ == "crane_up" else -1.0
+            move = Vector((0, 0, 1)) * (sign * distance)
             o.location = start_loc + move
         elif typ == "pan":
             o.rotation_euler[2] = start_rot[2] + math.radians(float(b.get("angle", 30.0)))
