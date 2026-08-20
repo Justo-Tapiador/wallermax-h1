@@ -147,19 +147,46 @@ export async function analyzeScene(req: PipelineRequest): Promise<AnalysisBundle
     console.warn(`[scene] could not resolve texture name "${name}" against uploads: ${uploads.map(u => u.name).join(", ")}`);
     return name;
   }
+  // Helper: resolve texture names inside a material spec that may be a
+  // string (coerce to {"texture_image": <resolved>}) or a dict.
+  function resolveMaterialSpec(spec: unknown): unknown {
+    if (typeof spec === "string") {
+      const resolved = resolveTextureName(spec);
+      return resolved ? { texture_image: resolved } : { texture_image: spec };
+    }
+    if (spec && typeof spec === "object") {
+      const s = spec as Record<string, unknown>;
+      if (typeof s.texture_image === "string") {
+        const resolved = resolveTextureName(s.texture_image);
+        if (resolved) s.texture_image = resolved;
+      }
+      if (typeof s.normal_image === "string") {
+        const resolved = resolveTextureName(s.normal_image);
+        if (resolved) s.normal_image = resolved;
+      }
+      if (typeof s.roughness_image === "string") {
+        const resolved = resolveTextureName(s.roughness_image);
+        if (resolved) s.roughness_image = resolved;
+      }
+    }
+    return spec;
+  }
+
   for (const e of world.entities) {
+    // 1. Resolve textures inside entity.material (top-level)
     if (e.material) {
-      if (e.material.texture_image) {
-        const resolved = resolveTextureName(e.material.texture_image);
-        if (resolved) e.material.texture_image = resolved;
+      e.material = resolveMaterialSpec(e.material) as typeof e.material;
+    }
+    // 2. Resolve textures inside entity.metadata.floor_material and
+    //    entity.metadata.wall_material (used by build_room via T2 patch).
+    //    These may be strings or dicts; resolveMaterialSpec handles both.
+    if (e.metadata) {
+      const md = e.metadata as Record<string, unknown>;
+      if (md.floor_material !== undefined) {
+        md.floor_material = resolveMaterialSpec(md.floor_material);
       }
-      if (e.material.normal_image) {
-        const resolved = resolveTextureName(e.material.normal_image);
-        if (resolved) e.material.normal_image = resolved;
-      }
-      if (e.material.roughness_image) {
-        const resolved = resolveTextureName(e.material.roughness_image);
-        if (resolved) e.material.roughness_image = resolved;
+      if (md.wall_material !== undefined) {
+        md.wall_material = resolveMaterialSpec(md.wall_material);
       }
     }
   }
