@@ -108,29 +108,43 @@ export async function analyzeScene(req: PipelineRequest): Promise<AnalysisBundle
   const world = worldMeta.json as WorldModel;
 
   // ── 3b. Resolve texture_image / normal_image / roughness_image ──────
-  // The LLM may emit bare filenames (e.g. "wood.png"). If they match the
-  // name of an uploaded reference or final image, replace them with the
-  // absolute path on disk so build_scene.py can load them.
-  const uploadMap: Record<string, string> = {};
-  if (req.referenceImage?.name) uploadMap[req.referenceImage.name] = req.referenceImage.path;
-  if (req.finalImage?.name) uploadMap[req.finalImage.name] = req.finalImage.path;
-  // Also map basename (in case the LLM stripped the dir)
-  if (req.referenceImage?.name) {
-    const base = req.referenceImage.name.split("/").pop()!;
-    if (base) uploadMap[base] = req.referenceImage.path;
-  }
-  if (req.finalImage?.name) {
-    const base = req.finalImage.name.split("/").pop()!;
-    if (base) uploadMap[base] = req.finalImage.path;
-  }
+  // The LLM may emit bare filenames (e.g. "wood.png") that don't match the
+  // actual filename on disk (the server prefixes a timestamp: e.g.
+  // "1787225305385-wood.jpg"). We try multiple match strategies:
+  //   1. Exact match on upload name
+  //   2. Basename match (LLM may strip the dir)
+  //   3. Suffix match: upload name ENDS WITH the LLM-emitted name
+  //      (this covers "1787225305385-wood.jpg" matching LLM's "wood.jpg")
+  //   4. If LLM emitted an absolute path or URL, leave as is
+  const uploads: Array<{ name: string; path: string }> = [];
+  if (req.referenceImage) uploads.push({ name: req.referenceImage.name, path: req.referenceImage.path });
+  if (req.finalImage) uploads.push({ name: req.finalImage.name, path: req.finalImage.path });
+
   function resolveTextureName(name: unknown): string | undefined {
     if (typeof name !== "string" || !name) return undefined;
-    if (uploadMap[name]) return uploadMap[name];
     // Already absolute path or URL — leave as is
-    if (name.startsWith("/") || name.startsWith("http")) return name;
-    // Last resort: try basename match
-    const base = name.split("/").pop()!;
-    if (uploadMap[base]) return uploadMap[base];
+    if (name.startsWith("/") || name.startsWith("http") || /^[A-Za-z]:[\\/]/.test(name)) return name;
+    // Strategy 1+2: exact match or basename match
+    for (const u of uploads) {
+      if (u.name === name) return u.path;
+      const uBase = u.name.split("/").pop()!.split("\\").pop()!;
+      if (uBase === name) return u.path;
+    }
+    // Strategy 3: suffix match (upload name ENDS WITH LLM name)
+    // E.g. upload="1787225305385-wood.jpg", LLM emits "wood.jpg"
+    for (const u of uploads) {
+      if (u.name.endsWith(name)) return u.path;
+      // Also try with normalized separators
+      const uNorm = u.name.replace(/\\/g, "/");
+      if (uNorm.endsWith(name)) return u.path;
+    }
+    // Strategy 4: case-insensitive suffix match (Windows case-insensitive fs)
+    const nameLower = name.toLowerCase();
+    for (const u of uploads) {
+      if (u.name.toLowerCase().endsWith(nameLower)) return u.path;
+    }
+    // Could not resolve — return the original (Blender will log a clear error)
+    console.warn(`[scene] could not resolve texture name "${name}" against uploads: ${uploads.map(u => u.name).join(", ")}`);
     return name;
   }
   for (const e of world.entities) {
