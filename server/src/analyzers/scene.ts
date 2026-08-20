@@ -202,11 +202,57 @@ export async function analyzeScene(req: PipelineRequest): Promise<AnalysisBundle
   // These produce a near-black render. Override them to bright defaults
   // UNLESS the user explicitly requested a dark mood in their prompt.
   {
-    const userPromptLower = (req.prompt || "").toLowerCase();
-    const userWantsDark = [
-      "noir", "melancholic", "cyberpunk", "dystopian", "noche", "night",
-      "oscuro", "dark", "moody", "dramatic", "cinematic dark"
-    ].some(kw => userPromptLower.includes(kw));
+    const userPrompt = (req.prompt || "");
+    const userPromptLower = userPrompt.toLowerCase();
+
+    // v2: Smarter dark-mood detection with negation handling.
+    // The original T9 detected keywords like "noir", "melancholic", "night", etc.
+    // But it failed when the user wrote "NO uses melancholic" (negation) — it
+    // detected the keyword and decided NOT to apply the override, even though
+    // the user clearly wanted bright.
+    //
+    // v2 strategy:
+    //   1. Find all keyword occurrences.
+    //   2. Skip occurrences that appear in a negation context (within ~30 chars
+    //      of "no ", "sin ", "don't ", "avoid ", "without ", "not ").
+    //   3. If any keyword survives the negation filter → user wants dark.
+    //   4. Also: if user explicitly asks for "bright", "daylight", "luz brillante",
+    //      "iluminación brillante", etc., force bright regardless.
+    const darkKeywords = [
+      "noir", "melancholic", "cyberpunk", "dystopian",
+      "noche", "night", "oscuro", "dark", "moody", "dramatic"
+    ];
+    const negationPatterns = [
+      /\bno\s+([a-záéíóúñ\s]{0,30}?)\b(noir|melancholic|cyberpunk|dystopian|noche|night|oscuro|dark|moody|dramatic)\b/i,
+      /\bsin\s+([a-záéíóúñ\s]{0,30}?)\b(noir|melancholic|cyberpunk|dystopian|noche|night|oscuro|dark|moody|dramatic)\b/i,
+      /\bdon'?t\s+([a-z\s]{0,30}?)\b(noir|melancholic|cyberpunk|dystopian|noche|night|oscuro|dark|moody|dramatic)\b/i,
+      /\bavoid\s+([a-z\s]{0,30}?)\b(noir|melancholic|cyberpunk|dystopian|noche|night|oscuro|dark|moody|dramatic)\b/i,
+      /\bwithout\s+([a-z\s]{0,30}?)\b(noir|melancholic|cyberpunk|dystopian|noche|night|oscuro|dark|moody|dramatic)\b/i,
+      /\bnot\s+([a-z\s]{0,30}?)\b(noir|melancholic|cyberpunk|dystopian|noche|night|oscuro|dark|moody|dramatic)\b/i,
+    ];
+
+    // Strip negated occurrences from the prompt before checking for keywords
+    let sanitizedPrompt = userPromptLower;
+    for (const pattern of negationPatterns) {
+      sanitizedPrompt = sanitizedPrompt.replace(pattern, "");
+    }
+
+    // Special case: "nightstand" contains "night" — strip it before detection
+    sanitizedPrompt = sanitizedPrompt.replace(/\bnightstand\b/gi, "x".repeat(10));
+
+    // Check if any dark keyword appears in the sanitized prompt (non-negated context)
+    let userWantsDark = darkKeywords.some(kw => sanitizedPrompt.includes(kw));
+
+    // Override: if user explicitly asks for bright, force bright
+    const brightPhrases = [
+      "bright", "daylight", "luz brillante", "iluminación brillante",
+      "iluminacion brillante", "ambiente brillante", "mood: bright",
+      "mood bright", "día brillante", "dia brillante"
+    ];
+    const userWantsBright = brightPhrases.some(phrase => sanitizedPrompt.includes(phrase));
+    if (userWantsBright) {
+      userWantsDark = false;
+    }
 
     if (!userWantsDark) {
       // 1. Force bright ambient_color if LLM emitted dark values

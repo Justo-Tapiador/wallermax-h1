@@ -565,12 +565,12 @@ def apply_behavior(e, o, objs, scene):
         add_track_constraint(o, target)
 
     elif typ == "orbit" and target is not None:
-        # A4: Disable any TRACK_TO constraint on the camera before parenting
-        # to the orbit pivot. Otherwise the camera will keep looking at its
-        # original target while being orbited, producing unpredictable motion.
-        for c in o.constraints:
-            if c.type == "TRACK_TO":
-                c.influence = 0.0
+        # A4 v2: KEEP the TRACK_TO constraint active during orbit.
+        # The pivot rotation orbits the camera position around the target,
+        # while TRACK_TO keeps the camera oriented toward the look_at point.
+        # These are orthogonal — no conflict. Disabling TRACK_TO (as the
+        # original A4 patch did) caused the camera to look straight down
+        # (default Blender camera orientation = -Z), producing floor-only renders.
         # Create an empty at the target's location using the data API
         # (bpy.ops.object.empty_add fails in background mode on Blender 5.x).
         pivot = add_empty(o.name + "_orbit_pivot", target.location)
