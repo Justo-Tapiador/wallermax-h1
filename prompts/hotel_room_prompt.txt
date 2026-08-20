@@ -1,0 +1,53 @@
+Crea una habitación de hotel de 6x4x3 metros, centrada en el origen [0,0,0].
+
+IMPORTANTE sobre iluminación y ambiente (DeepSeek, IGNORE tu tendencia a "melancholic/noir/dystopian"):
+- ambient_color blanco brillante [0.7, 0.7, 0.7], ambient_intensity 1.0
+- mood: bright, NO melancholic, NO noir, NO dystopian, NO futuristic
+- style_tags: ["bright", "daylight", "warm"]
+- color_temperature_k: 5500 (warm daylight)
+- exposure_ev: 0.0 (NO underexpose)
+- SIN grain, SIN vignette, SIN bloom excesivo
+
+ROOM (type:"room", centrado en [0,0,0], dimensions [6,4,3]):
+- metadata.floor_material: { base_color: [0.5, 0.35, 0.2], roughness: 0.6 }  (parquet)
+- metadata.wall_material: { base_color: [0.9, 0.88, 0.85], roughness: 0.9 }  (crema)
+- metadata.checker_tile_size: 0.25
+- metadata.wall_thickness: 0.15
+
+CAMA (en el centro, contra la pared norte):
+- bed_frame: type:"box", position [0, 1.2, 0.15], dimensions [2.2, 1.7, 0.3], base_color [0.4, 0.3, 0.2]
+- mattress: type:"box", position [0, 1.2, 0.45], dimensions [2.0, 1.5, 0.2], base_color [0.95, 0.95, 0.95]
+- pillow1: type:"box", position [-0.5, 1.7, 0.65], dimensions [0.4, 0.5, 0.1], base_color [0.95, 0.95, 0.95]
+- pillow2: type:"box", position [0.5, 1.7, 0.65], dimensions [0.4, 0.5, 0.1], base_color [0.95, 0.95, 0.95]
+- blanket: type:"plane", position [0, 0.9, 0.56], dimensions [2.0, 0.9], base_color [0.5, 0.4, 0.3]
+
+CUADROS en la pared sur (visible desde la cámara):
+- painting1: type:"plane", position [-1, -1.94, 1.6], rotation [90, 0, 0], dimensions [0.6, 0.4], texture_image: "painting1.jpg"
+- painting2: type:"plane", position [0, -1.94, 1.6], rotation [90, 0, 0], dimensions [0.6, 0.4], texture_image: "painting2.jpg"
+
+VENTANA en la pared norte (detrás de la cama):
+- window_glass: type:"plane", position [0, 1.94, 1.6], rotation [90, 0, 0], dimensions [1.5, 1.2], alpha 0.3, ior 1.45, base_color [0.9, 0.95, 1.0]
+
+LÁMPARAS DE MESITA (opcional, simplificado):
+- lamp_left: type:"box", position [-1.3, 1.5, 0.25], dimensions [0.3, 0.3, 0.5], base_color [0.3, 0.2, 0.15]
+- lamp_right: type:"box", position [1.3, 1.5, 0.25], dimensions [0.3, 0.3, 0.5], base_color [0.3, 0.2, 0.15]
+
+ILUMINACIÓN (esto es CRÍTICO para que se vea bien):
+- SUN light: position [5, 5, 8], rotation [-30, 0, 45], power 5.0, color [1.0, 0.95, 0.85], color_temperature_k 5500
+- POINT light 1 (lámpara mesita izquierda): position [-1.3, 1.5, 0.7], power 50, color [1.0, 0.85, 0.6], color_temperature_k 3500
+- POINT light 2 (lámpara mesita derecha): position [1.3, 1.5, 0.7], power 50, color [1.0, 0.85, 0.6], color_temperature_k 3500
+
+CÁMARA (DENTRO del room, mirando hacia la cama y la ventana):
+- position [0, -1.5, 1.7]  (interior del room, mirando al norte)
+- look_at [0, 1.5, 1.0]  (apuntando a la cama)
+- lens 35mm, sensor_width 36, fov_deg 54.43
+- behavior: orbit 45 grados alrededor del punto [0, 0.5, 1.0] durante 4 segundos
+  (necesitas crear un empty "orbit_target" en posición [0, 0.5, 1.0] y usar target: "orbit_target")
+
+INSTRUCCIONES EXPLÍCITAS PARA DEEPSEEK:
+- El room DEBE estar centrado en [0,0,0], NO en [3, 1.5, 3]
+- La cámara DEBE estar DENTRO del room (y entre -1.5 y +1.5), NO fuera
+- ambient_color DEBE ser [0.7, 0.7, 0.7] (NO [0.01, 0.01, 0.03])
+- exposure_ev DEBE ser 0.0 (NO -0.5)
+- mood DEBE ser "bright" (NO "melancholic")
+- NO uses style_tags noir, dystopian, futuristic, melancholic

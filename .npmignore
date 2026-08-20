@@ -1,0 +1,46 @@
+# Node modules and build artifacts
+node_modules/
+.tmp/
+.cache/
+
+# Dev / test files
+test/
+tests/
+__tests__/
+*.test.ts
+*.spec.ts
+coverage/
+.nyc_output/
+
+# Environment and runtime
+.env
+.env.local
+.env.*.local
+.wallermax/
+
+# Download artifacts (user-generated)
+download/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+.github/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Patches (internal dev tooling)
+patches/
+**/apply_*.py
+
+# Docs that should not be in the npm package
+*.md.bak

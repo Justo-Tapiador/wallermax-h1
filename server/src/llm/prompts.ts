@@ -1,5 +1,31 @@
 // Wallermax H1 — system prompts (kept separate so they can be tuned in one place)
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+// Load the skills markdown once at startup (cached for the process lifetime).
+// Path is resolved relative to the project root (two levels up from this file).
+let _SCENE_COMPILER_SKILLS_MD: string | null = null;
+function getSceneCompilerSkills(): string {
+  if (_SCENE_COMPILER_SKILLS_MD !== null) return _SCENE_COMPILER_SKILLS_MD;
+  try {
+    const skillsPath = join(process.cwd(), "prompts", "scene_compiler_skills.md");
+    _SCENE_COMPILER_SKILLS_MD = readFileSync(skillsPath, "utf-8");
+    console.log(`[prompts] loaded scene_compiler_skills.md (${_SCENE_COMPILER_SKILLS_MD.length} bytes)`);
+  } catch (err) {
+    console.warn(`[prompts] could not load scene_compiler_skills.md: ${err}`);
+    _SCENE_COMPILER_SKILLS_MD = "";  // cache empty to avoid repeated failures
+  }
+  return _SCENE_COMPILER_SKILLS_MD;
+}
+
+export function getSceneCompilerSystemPrompt(extra?: string): string {
+  const skills = getSceneCompilerSkills();
+  return SCENE_COMPILER_SYSTEM_PROMPT
+    + (extra ? extra : "")
+    + (skills ? "\n\n--- Scene Compiler Skills ---\n" + skills : "");
+}
+
 export const SCENE_COMPILER_SYSTEM_PROMPT = `You are the semantic scene compiler for Wallermax H1, a procedural 3D world engine.
 
 Transform the user's natural-language description and, when supplied, a reference image into a coherent declarative World Model. The World Model is consumed by a Blender compiler that turns it into a .blend file and an MP4 video.

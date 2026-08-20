@@ -15,9 +15,9 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { getProvider } from "../llm/index.js";
 import {
-  SCENE_COMPILER_SYSTEM_PROMPT,
   RECONSTRUCTION_SYSTEM_PROMPT,
   FINAL_IMAGE_SYSTEM_PROMPT,
+  getSceneCompilerSystemPrompt,
 } from "../llm/prompts.js";
 import type { AnalyzeResult } from "../llm/provider.js";
 import { loadSchema } from "./schemas.js";
@@ -99,7 +99,7 @@ export async function analyzeScene(req: PipelineRequest): Promise<AnalysisBundle
 
   const worldMeta = await provider.analyze({
     prompt: augmentedPrompt,
-    systemPrompt: SCENE_COMPILER_SYSTEM_PROMPT + (req.systemPromptExtra ?? ""),
+    systemPrompt: getSceneCompilerSystemPrompt(req.systemPromptExtra),
     schema: loadSchema("world_model"),
     images,
     model: req.model,
@@ -127,7 +127,9 @@ export async function analyzeScene(req: PipelineRequest): Promise<AnalysisBundle
     // Strategy 1+2: exact match or basename match
     for (const u of uploads) {
       if (u.name === name) return u.path;
-      const uBase = u.name.split("/").pop()!.split("\\").pop()!;
+      //const uBase = u.name.split("/").pop()!.split("\\").pop()!;
+      //  const uBase: string = u.name.split("/").pop()!.split("\\").pop()!;
+        const uBase: string = u.name.split("/").pop()!.split("\\").pop()! ?? "";
       if (uBase === name) return u.path;
     }
     // Strategy 3: suffix match (upload name ENDS WITH LLM name)
@@ -188,6 +190,94 @@ export async function analyzeScene(req: PipelineRequest): Promise<AnalysisBundle
       if (md.wall_material !== undefined) {
         md.wall_material = resolveMaterialSpec(md.wall_material);
       }
+    }
+  }
+
+  // ── 3c. Post-process: enforce bright lighting if LLM emitted dark values ──
+  // Despite the skills markdown guidance, DeepSeek often emits:
+  //   ambient_color: [0.005, 0.01, 0.02]  (near-black)
+  //   mood: "melancholic"
+  //   exposure_ev: -0.5
+  //   style_tags with "noir", "cyberpunk", "dystopian"
+  // These produce a near-black render. Override them to bright defaults
+  // UNLESS the user explicitly requested a dark mood in their prompt.
+  {
+    const userPromptLower = (req.prompt || "").toLowerCase();
+    const userWantsDark = [
+      "noir", "melancholic", "cyberpunk", "dystopian", "noche", "night",
+      "oscuro", "dark", "moody", "dramatic", "cinematic dark"
+    ].some(kw => userPromptLower.includes(kw));
+
+    if (!userWantsDark) {
+      // 1. Force bright ambient_color if LLM emitted dark values
+      const env = world.world.environment || (world.world.environment = {});
+      const amb = env.ambient_color;
+      const isDark = amb && Array.isArray(amb) && amb.length >= 3 &&
+                     amb.every(c => typeof c === "number" && c < 0.1);
+      if (isDark) {
+        console.warn(`[scene] LLM emitted dark ambient_color [${amb?.map((c: number) => c.toFixed(3)).join(", ")}] — forcing bright [0.5, 0.5, 0.55]`);
+        env.ambient_color = [0.5, 0.5, 0.55];
+        env.ambient_intensity = 1.0;
+      }
+
+      // 2. Force mood to "bright" if LLM emitted dark mood
+      const aest = world.world.aesthetic || (world.world.aesthetic = {});
+      const darkMoods = ["melancholic", "noir", "cyberpunk", "dystopian", "moody", "dark"];
+      if (typeof aest.mood === "string" && darkMoods.includes(aest.mood.toLowerCase())) {
+        console.warn(`[scene] LLM emitted mood "${aest.mood}" — forcing "bright"`);
+        aest.mood = "bright";
+      }
+
+      // 3. Force exposure_ev to 0.0 if LLM emitted negative value
+      if (typeof aest.exposure_ev === "number" && aest.exposure_ev < -0.1) {
+        console.warn(`[scene] LLM emitted exposure_ev ${aest.exposure_ev} — forcing 0.0`);
+        aest.exposure_ev = 0.0;
+      }
+
+      // 4. Sanitize style_tags — remove dark-themed tags
+      if (Array.isArray(aest.style_tags)) {
+        const darkTags = ["noir", "cyberpunk", "dystopian", "melancholic", "moody", "dark"];
+        const filtered = aest.style_tags.filter(
+          (t: unknown) => typeof t === "string" && !darkTags.includes(t.toLowerCase())
+        );
+        if (filtered.length !== aest.style_tags.length) {
+          console.warn(`[scene] LLM emitted dark style_tags [${aest.style_tags.join(", ")}] — sanitized to [${filtered.join(", ")}]`);
+          // Ensure at least one bright tag
+          if (filtered.length === 0 || !filtered.some(t => ["bright", "daylight", "natural", "warm"].includes(String(t).toLowerCase()))) {
+            filtered.push("daylight");
+          }
+          aest.style_tags = filtered;
+        }
+      }
+
+      // 5. Boost SUN light power if it's too low for Cycles
+      const engine = world.world.render?.engine ?? "BLENDER_EEVEE_NEXT";
+      const sun = world.entities.find(e => e.type === "light" && e.light?.type === "SUN");
+      if (sun?.light && typeof sun.light.power === "number") {
+        const minSunPower = engine === "CYCLES" ? 8.0 : 3.0;
+        if (sun.light.power < minSunPower) {
+          console.warn(`[scene] LLM emitted SUN power ${sun.light.power} — boosting to ${minSunPower} for ${engine}`);
+          sun.light.power = minSunPower;
+        }
+      }
+
+      // 6. Boost POINT lights if they're too weak for the room
+      const room = world.entities.find(e => e.type === "room");
+      const roomDims = room?.geometry?.dimensions;
+      if (roomDims && Array.isArray(roomDims)) {
+        const roomArea = (roomDims[0] ?? 6) * (roomDims[1] ?? 4);
+        const minPointPower = Math.max(40, roomArea * 10);  // 10W per m² of floor, min 40W
+        for (const e of world.entities) {
+          if (e.type === "light" && e.light?.type === "POINT" && typeof e.light.power === "number") {
+            if (e.light.power < minPointPower) {
+              console.warn(`[scene] LLM emitted POINT light "${e.id}" power ${e.light.power} — boosting to ${minPointPower}`);
+              e.light.power = minPointPower;
+            }
+          }
+        }
+      }
+    } else {
+      console.log(`[scene] user prompt indicates dark mood — keeping LLM's aesthetic choices`);
     }
   }
 

@@ -1,19 +1,65 @@
 {
   "name": "wallermax-h1",
-  "version": "1.0.1", 
+  "version": "1.0.1",
   "description": "Wallermax H1 — Procedural 3D scene compiler. Text + reference image + final image -> semantic World Model -> Blender -> MP4. Native Node.js + TypeScript web server.",
   "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
+  "main": "./dist/server/src/index.js",
+  "bin": {
+    "wallermax-h1": "./dist/server/src/cli.js",
+    "wallermax": "./dist/server/src/cli.js"
+  },
+  "files": [
+    "dist/server/",
+    "public/",
+    "python/",
+    "schemas/",
+    "prompts/",
+    "docs/",
+    "README.md",
+    "LICENSE",
+    ".env.example"
+  ],
+  "keywords": [
+    "blender",
+    "3d",
+    "video-generation",
+    "llm",
+    "ai",
+    "procedural",
+    "scene-compiler",
+    "world-model",
+    "deepseek",
+    "openai",
+    "gpt-4o",
+    "pbr",
+    "textures",
+    "animation",
+    "typescript",
+    "cli"
+  ],
+  "author": "Justo Tapiador García <justo.tapiador@gmail.com>",
+  "contributors": [],
+  "homepage": "https://github.com/Justo-Tapiador/wallermax-h1#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Justo-Tapiador/wallermax-h1.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Justo-Tapiador/wallermax-h1/issues"
+  },
   "scripts": {
     "dev": "tsx watch server/src/index.ts",
-    "start": "tsx server/src/index.ts",
+    "start": "node dist/server/src/index.js",
     "build": "tsc -p tsconfig.json",
     "serve": "node dist/server/src/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "cli": "tsx server/src/cli.ts"
+    "cli": "node dist/server/src/cli.js",
+    "prepublishOnly": "npm run typecheck && npm run build",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "formidable": "^3.5.2",
@@ -25,5 +71,9 @@
     "@types/node": "^22.10.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }
