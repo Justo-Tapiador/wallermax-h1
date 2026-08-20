@@ -27,6 +27,11 @@ import sys
 from pathlib import Path
 from mathutils import Vector
 
+# Set by compile_world() to the absolute path of the job's upload directory.
+# Used by make_material() to resolve texture_image / normal_image / roughness_image.
+_CURRENT_UPLOAD_DIR = None
+
+
 
 # ─────────────────────────────────────────────────────────────────────────
 # CLI helpers
@@ -99,6 +104,42 @@ def norm_color(c, default=0.8):
 # ─────────────────────────────────────────────────────────────────────────
 # Materials
 # ─────────────────────────────────────────────────────────────────────────
+
+def resolve_texture_path(name, upload_dir=None):
+    """Resolve a texture filename/relative path to an absolute path.
+
+    Tries in order:
+      1. If `name` is already absolute and exists -> return it.
+      2. If `upload_dir` is given, join upload_dir/name and check.
+      3. Walk job_dir (out_dir) recursively for a file with that basename.
+      4. As last resort, return `name` as-is (let bpy.data.images.load fail
+         with a clear error if the file truly doesn't exist).
+    """
+    if not name or not isinstance(name, str):
+        return name
+    p = Path(name)
+    if p.is_absolute() and p.exists():
+        return str(p)
+    if upload_dir is not None:
+        cand = Path(upload_dir) / name
+        if cand.exists():
+            return str(cand.resolve())
+        cand2 = Path(upload_dir) / p.name
+        if cand2.exists():
+            return str(cand2.resolve())
+    base = p.name
+    search_roots = []
+    if upload_dir is not None:
+        search_roots.append(Path(upload_dir))
+        search_roots.append(Path(upload_dir) / "_uploads")
+    for root in search_roots:
+        if not root.exists():
+            continue
+        for hit in root.rglob(base):
+            return str(hit.resolve())
+    print(f"WALLERMAX_TEXTURE_RESOLVE_FAIL: '{name}' not found in upload_dir={upload_dir}")
+    return name
+
 def _get_material_node_tree(mat):
     """Return the Material's shader node tree, or None if unavailable.
 
@@ -183,6 +224,69 @@ def make_material(name, spec):
                                                base_color[1] * 0.8,
                                                base_color[2] * 0.8, 1.0]
         nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+
+    # Image-based PBR textures (overrides any procedural pattern above).
+    texture_image = spec.get("texture_image")
+    if texture_image:
+        upload_dir = _CURRENT_UPLOAD_DIR
+        tex_path = resolve_texture_path(texture_image, upload_dir)
+        try:
+            albedo_img = bpy.data.images.load(tex_path, check_existing=True)
+            albedo_img.colorspace_settings.name = "sRGB"
+        except Exception as exc:
+            print(f"WALLERMAX_TEXTURE_LOAD_FAIL: '{tex_path}' - {exc}")
+            albedo_img = None
+
+        if albedo_img is not None:
+            scale = float(spec.get("pattern_scale", 1.0))
+            uv_node = nt.nodes.new("ShaderNodeUVMap")
+            vec_out = uv_node.outputs["UV"]
+            if scale != 1.0:
+                mapping = nt.nodes.new("ShaderNodeMapping")
+                mapping.inputs["Scale"].default_value = (scale, scale, 1.0)
+                nt.links.new(vec_out, mapping.inputs["Vector"])
+                vec_out = mapping.outputs["Vector"]
+
+            albedo_tex = nt.nodes.new("ShaderNodeTexImage")
+            albedo_tex.image = albedo_img
+            albedo_tex.interpolation = "Smart"
+            nt.links.new(vec_out, albedo_tex.inputs["Vector"])
+            nt.links.new(albedo_tex.outputs["Color"], bsdf.inputs["Base Color"])
+
+            normal_image = spec.get("normal_image")
+            if normal_image:
+                try:
+                    nrm_img = bpy.data.images.load(
+                        resolve_texture_path(normal_image, upload_dir),
+                        check_existing=True
+                    )
+                    nrm_img.colorspace_settings.name = "Non-Color"
+                    nrm_tex = nt.nodes.new("ShaderNodeTexImage")
+                    nrm_tex.image = nrm_img
+                    nt.links.new(vec_out, nrm_tex.inputs["Vector"])
+                    nrm_map = nt.nodes.new("ShaderNodeNormalMap")
+                    nrm_map.inputs["Strength"].default_value = float(spec.get("normal_strength", 1.0))
+                    nt.links.new(nrm_tex.outputs["Color"], nrm_map.inputs["Color"])
+                    nt.links.new(nrm_map.outputs["Normal"], bsdf.inputs["Normal"])
+                except Exception as exc:
+                    print(f"WALLERMAX_NORMAL_LOAD_FAIL: '{normal_image}' - {exc}")
+
+            roughness_image = spec.get("roughness_image")
+            if roughness_image:
+                try:
+                    rgh_img = bpy.data.images.load(
+                        resolve_texture_path(roughness_image, upload_dir),
+                        check_existing=True
+                    )
+                    rgh_img.colorspace_settings.name = "Non-Color"
+                    rgh_tex = nt.nodes.new("ShaderNodeTexImage")
+                    rgh_tex.image = rgh_img
+                    nt.links.new(vec_out, rgh_tex.inputs["Vector"])
+                    nt.links.new(rgh_tex.outputs["Color"], bsdf.inputs["Roughness"])
+                except Exception as exc:
+                    print(f"WALLERMAX_ROUGHNESS_LOAD_FAIL: '{roughness_image}' - {exc}")
+
+            print(f"WALLERMAX_TEXTURE_APPLIED: '{name}' albedo='{texture_image}' scale={scale}")
 
     if mat.blend_method and float(spec.get("alpha", 1.0)) < 1.0:
         mat.blend_method = "BLEND"
@@ -284,11 +388,13 @@ def build_room(e):
     tile = md.get("checker_tile_size", 0.25)
     wall_thickness = md.get("wall_thickness", 0.15)
 
-    # Floor: a plane with the checker material, oriented so the checker
-    # pattern lies flat on the ground (Z=0). We use a separate material
-    # for the floor so the checker scale only affects the floor.
-    # Pass plane_size=x so the checker cells are exactly `tile` meters.
-    floor_mat = make_checker_material(e["id"] + "_floor_checker", tile, plane_size=x)
+    # Floor: respect the entity's material if provided (supports PBR textures
+    # via metadata.floor_material), otherwise fall back to the checker material.
+    floor_spec = md.get("floor_material") or (e.get("material") if e.get("type") != "room" else None)
+    if floor_spec:
+        floor_mat = make_material(e["id"] + "_floor_mat", floor_spec)
+    else:
+        floor_mat = make_checker_material(e["id"] + "_floor_checker", tile, plane_size=x)
     add_plane("floor", x, [0, 0, 0], floor_mat)
 
     # Ceiling: a plane flipped upside-down at z. We reuse the floor
@@ -296,13 +402,17 @@ def build_room(e):
     ceiling = add_plane("ceiling", x, [0, 0, z], floor_mat)
     ceiling.rotation_euler = (math.radians(180), 0, 0)
 
-    # Walls: solid neutral color (not checker — checker on vertical
-    # surfaces looks distorted because the UV mapping is different).
-    wall_mat = make_material(e["id"] + "_wall", {
-        "base_color": [0.7, 0.7, 0.72],
-        "roughness": 0.8,
-        "metallic": 0.0,
-    })
+    # Walls: respect metadata.wall_material if provided, otherwise fall back
+    # to the solid neutral color.
+    wall_spec = md.get("wall_material")
+    if wall_spec:
+        wall_mat = make_material(e["id"] + "_wall_mat", wall_spec)
+    else:
+        wall_mat = make_material(e["id"] + "_wall", {
+            "base_color": [0.7, 0.7, 0.72],
+            "roughness": 0.8,
+            "metallic": 0.0,
+        })
     add_box("wall_back", [x, wall_thickness, z], [0, y / 2, z / 2], wall_mat)
     add_box("wall_front", [x, wall_thickness, z], [0, -y / 2, z / 2], wall_mat)
     add_box("wall_left", [wall_thickness, y, z], [-x / 2, 0, z / 2], wall_mat)
@@ -439,6 +549,12 @@ def apply_behavior(e, o, objs, scene):
         add_track_constraint(o, target)
 
     elif typ == "orbit" and target is not None:
+        # A4: Disable any TRACK_TO constraint on the camera before parenting
+        # to the orbit pivot. Otherwise the camera will keep looking at its
+        # original target while being orbited, producing unpredictable motion.
+        for c in o.constraints:
+            if c.type == "TRACK_TO":
+                c.influence = 0.0
         # Create an empty at the target's location using the data API
         # (bpy.ops.object.empty_add fails in background mode on Blender 5.x).
         pivot = add_empty(o.name + "_orbit_pivot", target.location)
@@ -474,6 +590,11 @@ def apply_behavior(e, o, objs, scene):
         end_frame = max(1, int(float(b.get("duration", scene.frame_end / scene.render.fps)) * scene.render.fps))
         start_loc = o.location.copy()
         start_rot = list(o.rotation_euler)
+        # A2: Temporarily disable TRACK_TO constraint (it would overwrite
+        # rotation_euler every frame and silently cancel pan/tilt).
+        track_constraints = [c for c in o.constraints if c.type == "TRACK_TO"]
+        for c in track_constraints:
+            c.influence = 0.0
         o.keyframe_insert("location", frame=1)
         o.keyframe_insert("rotation_euler", frame=1)
 
@@ -485,13 +606,24 @@ def apply_behavior(e, o, objs, scene):
         }
         if typ in direction_map:
             distance = float(b.get("distance", 2.0))
-            # Move along local axes by removing the track constraint first if any.
-            move = direction_map[typ] * distance
+            # A3: Transform the direction vector to local space so dolly_in
+            # moves forward (along camera's view direction), not along world -Y.
+            # matrix_world.to_3x3() gives the rotation; we apply it to the
+            # world-space direction vector.
+            try:
+                local_rot = o.matrix_world.to_3x3()
+                move = local_rot @ direction_map[typ] * distance
+            except Exception:
+                # Fallback (e.g. Blender API quirk): use world-space direction.
+                move = direction_map[typ] * distance
             o.location = start_loc + move
         elif typ == "pan":
             o.rotation_euler[2] = start_rot[2] + math.radians(float(b.get("angle", 30.0)))
         elif typ == "tilt":
             o.rotation_euler[0] = start_rot[0] + math.radians(float(b.get("angle", 30.0)))
+        # Re-enable the TRACK_TO constraint after we've set our own keyframes.
+        for c in track_constraints:
+            c.influence = 1.0
         o.keyframe_insert("location", frame=end_frame)
         o.keyframe_insert("rotation_euler", frame=end_frame)
 
@@ -965,6 +1097,8 @@ def stamp_metadata(o, e):
 # Main compiler
 # ─────────────────────────────────────────────────────────────────────────
 def compile_world(world, out_dir):
+    global _CURRENT_UPLOAD_DIR
+    _CURRENT_UPLOAD_DIR = str(Path(out_dir) / "_uploads") if Path(out_dir).exists() else str(out_dir)
     scene = bpy.context.scene
     setup_render(world.get("world", {}))
     setup_world(world.get("world", {}))

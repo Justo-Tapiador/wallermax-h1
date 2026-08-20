@@ -33,7 +33,17 @@ export class ZAIProvider implements LLMProvider {
       `Return ONLY a JSON object that strictly conforms to this JSON Schema ` +
       `(do NOT include the schema itself, do NOT wrap in markdown fences, no commentary):\n\n${schemaHint}`;
 
-    const userText = `${opts.prompt}\n\n---\n${jsonInstruction}`;
+    // Annotate image filenames so the LLM can reference them by name.
+    let promptBase = opts.prompt;
+    const imgs = opts.images ?? [];
+    if (imgs.length > 0) {
+      const nameList = imgs
+        .map((img, i) => img.name || `image_${i + 1}`)
+        .map((name, i) => `  [Uploaded image #${i + 1}: filename="${name}"]`)
+        .join("\n");
+      promptBase += `\n\n--- Uploaded images (use these filenames verbatim when emitting material.texture_image / normal_image / roughness_image) ---\n${nameList}`;
+    }
+    const userText = `${promptBase}\n\n---\n${jsonInstruction}`;
 
     // Vision vs text-only path.
     if (opts.images && opts.images.length > 0) {

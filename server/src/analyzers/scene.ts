@@ -107,6 +107,49 @@ export async function analyzeScene(req: PipelineRequest): Promise<AnalysisBundle
 
   const world = worldMeta.json as WorldModel;
 
+  // ── 3b. Resolve texture_image / normal_image / roughness_image ──────
+  // The LLM may emit bare filenames (e.g. "wood.png"). If they match the
+  // name of an uploaded reference or final image, replace them with the
+  // absolute path on disk so build_scene.py can load them.
+  const uploadMap: Record<string, string> = {};
+  if (req.referenceImage?.name) uploadMap[req.referenceImage.name] = req.referenceImage.path;
+  if (req.finalImage?.name) uploadMap[req.finalImage.name] = req.finalImage.path;
+  // Also map basename (in case the LLM stripped the dir)
+  if (req.referenceImage?.name) {
+    const base = req.referenceImage.name.split("/").pop()!;
+    if (base) uploadMap[base] = req.referenceImage.path;
+  }
+  if (req.finalImage?.name) {
+    const base = req.finalImage.name.split("/").pop()!;
+    if (base) uploadMap[base] = req.finalImage.path;
+  }
+  function resolveTextureName(name: unknown): string | undefined {
+    if (typeof name !== "string" || !name) return undefined;
+    if (uploadMap[name]) return uploadMap[name];
+    // Already absolute path or URL — leave as is
+    if (name.startsWith("/") || name.startsWith("http")) return name;
+    // Last resort: try basename match
+    const base = name.split("/").pop()!;
+    if (uploadMap[base]) return uploadMap[base];
+    return name;
+  }
+  for (const e of world.entities) {
+    if (e.material) {
+      if (e.material.texture_image) {
+        const resolved = resolveTextureName(e.material.texture_image);
+        if (resolved) e.material.texture_image = resolved;
+      }
+      if (e.material.normal_image) {
+        const resolved = resolveTextureName(e.material.normal_image);
+        if (resolved) e.material.normal_image = resolved;
+      }
+      if (e.material.roughness_image) {
+        const resolved = resolveTextureName(e.material.roughness_image);
+        if (resolved) e.material.roughness_image = resolved;
+      }
+    }
+  }
+
   // ── 4. Merge render settings from the request ──────────────────────
   // The user-specified render settings always win over what the LLM proposes.
   world.world = world.world || ({} as WorldModel["world"]);

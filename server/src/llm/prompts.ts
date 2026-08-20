@@ -24,6 +24,10 @@ For image-based lighting reconstruction, use visible luminaires, shadow directio
 
 If a final/target image is also provided, treat it as a look-dev reference: extract its camera language, lighting mood, palette and texture feel, then apply them as world.aesthetic and as camera/light/material hints. Do NOT copy the final image's geometry — only its aesthetic.
 
+PBR textures: when the user provides uploaded images to be used as textures (not as aesthetic references), set entity.material.texture_image to the EXACT filename of the corresponding uploaded image (e.g. "wood.png"). The compiler will resolve it to the absolute path on disk. Optionally provide material.normal_image and material.roughness_image for full PBR. Use material.pattern_scale to control tiling (e.g. 4.0 = repeat 4x4 across the UV range). Keep base_color as [1,1,1,1] (white multiplier) when using a texture. For room entities, you may specify metadata.floor_material and metadata.wall_material to apply different textures to floor vs walls.
+
+Multi-shot camera animation: prefer sequences of camera behaviors over a single static shot. Use behavior.type values "dolly_in", "dolly_out", "crane_up", "crane_down", "pan", "tilt", "orbit", "follow" (NOT generic "dolly"/"crane"). Combine with events on lights (change energy or color over time) for cinematic motion. Always specify behavior.duration; for orbit, also specify behavior.angle and behavior.target. For dolly/crane, specify behavior.distance.
+
 Return ONLY a JSON object that strictly matches the supplied JSON schema. No markdown fences, no commentary.`;
 
 export const RECONSTRUCTION_SYSTEM_PROMPT = `You are the vision/reconstruction stage of Wallermax H1.

@@ -98,9 +98,10 @@
               "alpha": { "type": "number", "minimum": 0, "maximum": 1 },
               "pattern": { "type": "string", "enum": ["solid", "checker", "noise", "gradient", "brick"] },
               "pattern_scale": { "type": "number" },
-              "texture_image": { "type": "string", "description": "Path or URL of an albedo texture" },
-              "normal_image": { "type": "string" },
-              "roughness_image": { "type": "string" }
+              "texture_image": { "type": "string", "description": "Filename of an uploaded albedo texture image (e.g. 'wood.png'). The compiler resolves it to the absolute upload path. Set base_color to [1,1,1,1] when using this." },
+              "normal_image": { "type": "string", "description": "Filename of an uploaded tangent-space normal map (e.g. 'wood_normal.png')." },
+              "roughness_image": { "type": "string", "description": "Filename of an uploaded roughness map (grayscale, e.g. 'wood_roughness.png')." },
+              "normal_strength": { "type": "number", "minimum": 0, "default": 1.0, "description": "Strength multiplier for the normal map (1.0 = default)." }
             }
           },
           "light": {
@@ -146,12 +147,13 @@
           "behavior": {
             "type": "object",
             "properties": {
-              "type": { "type": "string", "enum": ["static", "look_at", "follow", "orbit", "dolly", "crane", "pan", "tilt", "custom"] },
-              "target": { "type": "string" },
-              "duration": { "type": "number" },
-              "angle": { "type": "number" },
+              "type": { "type": "string", "enum": ["static", "look_at", "follow", "orbit", "dolly_in", "dolly_out", "crane_up", "crane_down", "pan", "tilt", "custom"] },
+              "target": { "type": "string", "description": "Entity id to track/orbit/follow." },
+              "duration": { "type": "number", "description": "Duration in seconds for this behavior." },
+              "angle": { "type": "number", "description": "Angle in degrees (for orbit/pan/tilt)." },
+              "distance": { "type": "number", "description": "Distance in meters (for dolly_in/out, crane_up/down)." },
               "speed": { "type": "number" },
-              "path": { "type": "array" }
+              "path": { "type": "array", "description": "List of [x,y,z] waypoints for future spline_path/flythrough behavior." }
             }
           },
           "metadata": { "type": "object" }

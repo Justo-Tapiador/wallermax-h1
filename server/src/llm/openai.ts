@@ -29,8 +29,19 @@ export class OpenAIProvider implements LLMProvider {
     const started = Date.now();
 
     const userContent: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [];
-    userContent.push({ type: "text", text: opts.prompt });
-    for (const img of opts.images ?? []) {
+    // Build the text prompt, optionally annotating image filenames so the LLM
+    // can reference them by name in material.texture_image / normal_image.
+    let promptText = opts.prompt;
+    const imgs = opts.images ?? [];
+    if (imgs.length > 0) {
+      const nameList = imgs
+        .map((img, i) => img.name || `image_${i + 1}`)
+        .map((name, i) => `  [Uploaded image #${i + 1}: filename="${name}"]`)
+        .join("\n");
+      promptText += `\n\n--- Uploaded images (use these filenames verbatim when emitting material.texture_image / normal_image / roughness_image) ---\n${nameList}`;
+    }
+    userContent.push({ type: "text", text: promptText });
+    for (const img of imgs) {
       userContent.push({
         type: "image_url",
         image_url: { url: bytesToDataUrl(img.bytes, img.mime) },
