@@ -1,350 +1,589 @@
 # Wallermax H1
-![Demo](docs/render.gif)
 
-> **⚠️ BETA PROTOTYPE — NOT PRODUCTION-READY**
+> **Wallermax H1 is a video generator based on 3D rendering.**
 >
-> Wallermax H1 is a **beta prototype** of a **video generator based on 3D scene
-> rendering**. It is an experimental project that demonstrates how a Large Language
-> Model (LLM) can be used to translate a natural-language description — optionally
-> accompanied by reference and look-dev images — into a fully procedural 3D
-> animation rendered as an MP4 video.
+> It turns a natural-language prompt, an optional reference image, and an
+> optional final / look-dev image into a short MP4 video by compiling all
+> three into a single declarative *World Model* and rendering it.
 >
-> The core idea: **send all available context (prompt, images, render settings) to
-> an LLM via its API, receive a structured JSON "World Model" that describes every
-> object, light, camera and event in the scene, then feed that JSON to a Python
-> script that drives Blender (or any other 3D modeling application with a Python
-> API) to produce the animation.**
-
+> The server runs on native Node.js + TypeScript — no Next.js, no React.
+> Blender is the primary renderer. When Blender is not installed, an
+> **included fallback preview renderer** (Python + Pillow + ffmpeg)
+> produces a top-down schematic MP4 so the pipeline always works.
 
 ---
 
-## How it works
+## Table of contents
 
-```
-User (web UI or CLI)
-  │
-  │  prompt + optional reference image + optional final/look-dev image
-  │  + render settings (resolution, fps, duration, engine)
-  ▼
-┌─────────────────────────────────────────────────────┐
-│  Wallermax H1 server  (Node.js + TypeScript)        │
-│                                                      │
-│  1. Reconstruction analyzer (if ref image)           │
-│     → LLM call → structured 3D hypothesis             │
-│                                                      │
-│  2. Final-image analyzer (if final image)            │
-│     → LLM call → camera/lighting/palette/texture     │
-│                                                      │
-│  3. Scene compiler (always)                          │
-│     → LLM call → World Model JSON                    │
-│       (entities, lights, camera, materials,          │
-│        physics, events, aesthetic)                   │
-│                                                      │
-│  4. Renderer                                         │
-│     → Blender (Python/bpy) renders PNG frames        │
-│     → ffmpeg encodes frames → H.264 MP4              │
-│     OR                                                │
-│     → Fallback renderer (PIL + ffmpeg) → preview MP4 │
-└─────────────────────────────────────────────────────┘
-  │
-  ▼
-  render.mp4 (H.264, browser-playable)
-  world.blend (Blender scene file)
-  world.json (World Model)
-  scene_report.md (human-readable summary)
-  reconstruction.json (reference-image analysis)
-  final_image.json (look-dev analysis)
-```
-
-The LLM never writes Python or mesh data. It only produces a **declarative
-World Model** — a JSON document that describes *what* the scene contains
-(rooms, objects, lights, camera) and *how* it should animate (events,
-behaviors, keyframes). The Python script (`build_scene.py`) then compiles
-that description into actual Blender operations.
+1. [What it does](#what-it-does)
+2. [Why a fallback renderer?](#why-a-fallback-renderer)
+3. [Highlights vs. World Compiler v2 / v3](#highlights-vs-world-compiler-v2--v3)
+4. [Quick start](#quick-start)
+5. [Project layout](#project-layout)
+6. [The three analyzers](#the-three-analyzers)
+7. [Renderers](#renderers)
+8. [Configuration](#configuration)
+9. [HTTP API](#http-api)
+10. [CLI](#cli)
+11. [Web UI](#web-ui)
+12. [Examples](#examples)
+13. [Troubleshooting](#troubleshooting)
+14. [License](#license)
 
 ---
 
-## Features
+## What it does
 
-### LLM-driven scene generation
+Given a text prompt and (optionally) up to two images, Wallermax H1
+produces an MP4 video of a procedurally generated 3D scene.
 
-- **Three LLM providers** with a unified interface:
-  - **`mock`** — returns a canned World Model for testing without an API key.
-    Parses basic color words from the prompt (e.g. "green ball" → green ball).
-  - **`openai`** — uses OpenAI's Chat Completions API with JSON-mode response
-    format. Supports GPT-4o, GPT-4o-mini and any OpenAI-compatible model.
-  - **`zai`** — uses the Z.ai web-dev SDK. Works inside the Z.ai sandbox without
-    an API key.
-- **Three analysis stages** (each is a separate LLM call):
-  1. **Reconstruction** — infers the 3D scene from a reference image
-     (rooms, objects, materials, lighting, camera, ambiguities).
-  2. **Final-image analysis** — extracts the aesthetic "look-dev" from a
-     target image (camera language, lighting mood, palette, textures, style).
-  3. **Scene compilation** — combines the prompt + reconstruction + look-dev
-     into a single World Model JSON.
-- **Provenance tracking** — every entity in the World Model carries a
-  `provenance` field (`observed`, `user_defined`, `inferred`, `creative`)
-  and a `confidence` float. The system never silently turns a creative guess
-  into a fact.
-- **Automatic event rescaling** — if the LLM proposes a 10-second animation
-  but the user requests 2 seconds, all event times and behavior durations are
-  automatically rescaled to fit.
+```
+                 ┌───────────────────┐
+   prompt ─────► │                  │
+                 │   Wallermax H1   │
+   reference ─► │     server       │ ────► render.mp4
+   image        │  (TypeScript +    │       world.json
+   (optional)   │   Python)        │       scene_report.md
+                 │                  │       reconstruction.json
+   final/target ─►│                  │       final_image.json
+   image        └─────────┬─────────┘
+   (optional)             │
+                           ▼
+                  ┌─────────────────────┐
+                  │   Blender           │  ← if installed
+                  │   (python/build_    │     → world.blend + render.mp4
+                  │    scene.py)        │
+                  └─────────────────────┘
+                           │
+                           │ if Blender is NOT installed
+                           ▼
+                  ┌─────────────────────┐
+                  │  Fallback renderer  │  ← always available
+                  │  (python/fallback_  │     → render.mp4 + poster.png
+                  │   renderer.py)      │     (top-down schematic preview)
+                  └─────────────────────┘
+```
 
-### Blender integration
+The reference image is used to **reconstruct** the visible 3D scene (rooms,
+objects, materials, lighting). The final image is used as a **look-dev
+target** — the system extracts its camera language, lighting mood, palette,
+objects and textures, then folds them into the World Model's `aesthetic`
+block so the rendered MP4 visually matches the target.
 
-- **Full 3D rendering** with EEVEE or Cycles (user-selectable).
-- **Procedural geometry** — spheres, boxes, cylinders, planes, rooms — no
-  external mesh assets required.
-- **Materials** — Principled BSDF with base color, roughness, metallic, IOR,
-  alpha, emission, and procedural patterns (checker, noise, gradient, brick).
-  The checker scale is automatically computed from the plane size so cells
-  are the correct physical size.
-- **Lights** — point, area, sun and spot lights with power, color, color
-  temperature (Kelvin → RGB), size, beam angle and softness.
-- **Camera** — perspective or orthographic, with lens, sensor width,
-  depth-of-field (focus distance + f-stop), and target tracking.
-- **Camera behaviors** — static, look_at, follow, orbit, dolly_in/out,
-  crane_up/down, pan, tilt. Orbit uses a pivot empty with
-  `matrix_parent_inverse` for correct world-space preservation.
-- **Rigid-body physics** — mass, restitution, friction, active/passive types.
-  The rigidbody world is created lazily if needed.
-- **Keyframe animation** — events (position, rotation, energy, color,
-  visibility changes) are keyframed with automatic frame-1 baselines for
-  smooth interpolation.
-- **Aesthetic compositor** — vignette, bloom, exposure EV applied via
-  Blender's compositor nodes (with graceful fallback if the compositor
-  is unavailable).
-- **EEVEE performance tuning** — automatically sets TAA samples to 16,
-  disables soft shadows, SSR, volumetric shadows and bloom for faster
-  preview renders.
-- **Cross-version compatibility** — the script detects and adapts to
-  Blender 3.x, 4.x and 5.x:
-  - EEVEE vs. EEVEE_NEXT engine name.
-  - `use_nodes` deprecation (uses data API fallback).
-  - `Action.fcurves` vs. slotted-actions `layers[].strips[].channelbag.fcurves`.
-  - `bpy.ops` vs. data API for empty creation, shade_smooth, etc.
-  - `rigidbody_world` lazy creation.
-  - `animation_data_create()` before keyframe_insert (Blender 5.x).
+Every entity in the World Model carries a `provenance` field
+(`observed` / `user_defined` / `inferred` / `creative`) and a `confidence`
+float. The system never silently turns a creative guess into a fact.
 
-### Fallback preview renderer
+## Why a fallback renderer?
 
-When Blender is not installed (or fails to start), the pipeline automatically
-falls back to a **Python + Pillow + ffmpeg** renderer that produces a
-top-down schematic preview:
+Blender is a heavyweight native dependency (200+ MB, requires a GPU or
+CPU rendering license, OS-specific installers, etc.). It is not always
+available — especially in:
 
-- Renders the room as a checkerboard floor with walls outline.
-- Draws entities as colored 2D icons (disk, box, cylinder) at their X, Y
-  positions.
-- Lights are drawn as colored radial glows (power → radius, color → tint).
-- Camera is drawn as a small triangle.
-- Animated events (position, energy changes) are keyframed over time.
-- Aesthetic post-processing (vignette, grain, exposure) is applied.
-- Output is an H.264 MP4 encoded with ffmpeg.
-- The fallback renderer is **deterministic** — same inputs always produce
-  the same outputs.
+- Sandboxed or containerized environments (CI, Docker, online IDEs).
+- Demo / evaluation machines where the user just wants to see the
+  pipeline working before installing Blender.
+- Headless servers without a GUI.
 
-### Video encoding
+Wallermax H1 ships with a **fallback preview renderer**
+(`python/fallback_renderer.py`) that uses only Pillow and ffmpeg to
+produce an MP4. It is **not** a substitute for Blender — it produces a
+top-down schematic / look-dev preview that visualizes the room, the
+entities, the lights (as colored glows), the camera, and the animated
+events. It also applies the aesthetic block (vignette, grain, exposure,
+bloom) so you can preview the look-dev.
 
-- **Automatic encoder selection** with probe-and-test:
-  - Tries `libx264` (software H.264) → `h264_qsv` (Intel QuickSync) →
-    `h264_amf` (AMD) → `h264_nvenc` (NVIDIA) → `libx265` (HEVC) → `mpeg4`.
-  - Each encoder is **tested with a 1-frame encode** before being used for
-    the full sequence. If the test fails (e.g. `h264_nvenc` without an NVIDIA
-    GPU), the next encoder is tried automatically.
-  - All encoders include `-movflags +faststart` for progressive streaming.
-- **Blender's bundled ffmpeg** is preferred over the system ffmpeg — it
-  always has `libx264` and is found next to the Blender executable.
-- **Range request support** — the HTTP server supports `Range: bytes=...`
-  so the browser can stream and seek the MP4 without downloading it entirely.
-- **No `Content-Disposition: attachment`** for video files — the browser
-  plays them inline in the `<video>` element.
+The fallback is invoked **automatically** when Blender is not on PATH
+(or fails to start). The job is marked `done` with
+`renderEngine: "fallback"`, and the web UI shows a clear badge so the
+user knows what happened.
 
-### Web UI
+## Highlights vs. World Compiler v2 / v3
 
-- **Single-page dark-mode UI** built with vanilla HTML/CSS/JS (no React,
-  no Next.js, no bundler).
-- **Prompt textarea** with a default example prompt.
-- **Two image dropzones** — reference image (for reconstruction) and
-  final image (for look-dev), with drag-and-drop support.
-- **Render settings** — width, height, fps, duration, engine (EEVEE/Cycles),
-    Cycles samples, LLM provider selection.
-- **Mock provider warning** — a visible amber banner when the mock provider
-  is active, explaining that the prompt will be ignored.
-- **Live progress bar** with SSE (Server-Sent Events) updates.
-- **Frame counter** — shows `34/96` (current frame / total frames) in
-  real time next to the "Pipeline" title.
-- **Stop Pipeline button** — the "Run Pipeline" button transforms into a
-  red "Stop Pipeline" button while a job is running. Clicking it sends a
-  `SIGTERM` to the Blender/Python process, aborting the render.
-- **Six tabs** in the output panel:
-  - **World Model** — pretty-printed JSON of the generated scene.
-  - **Reconstruction** — pretty-printed reference-image analysis JSON.
-  - **Final Image** — pretty-printed look-dev analysis JSON.
-  - **Report** — the generated `scene_report.md`.
-  - **Render** — HTML5 `<video>` player with download links and a badge
-    showing which renderer was used (Blender or fallback).
-  - **Logs** — real-time renderer log output (Blender / fallback), with
-    auto-scroll to the latest line.
-  - **Jobs** — table of the last 25 jobs with "open" buttons to reload
-    their outputs.
-- **Renderer badge** — green "Rendered with Blender (full 3D)" or amber
-  "Rendered with fallback preview (Blender not installed)".
-- **Python check** button — opens `/api/python-check` showing which Python
-  interpreters the server can find, their paths, and whether Pillow /
-  ffmpeg are available.
-- **Health check** button — shows server status.
+Wallermax H1 is a unified, improved rewrite of the World Compiler v2
+prototype and the v3 reconstruction block. It keeps the proven semantic
+approach (a small declarative *World Model* JSON is what the renderer
+consumes, never raw mesh data) and adds significant new functionality.
 
-### HTTP API
+| Concern | v2 / v3 | **Wallermax H1** |
+| --- | --- | --- |
+| Orchestration language | Python | **TypeScript (native Node.js)** |
+| LLM calls | `openai` Python SDK | `openai` Node SDK **+ ZAI SDK + Mock** (provider-agnostic) |
+| Web UI | none | **Built-in dark-mode web UI** (HTML/CSS/JS, no React) |
+| Reference image | ✓ (single) | ✓ (reconstruction schema) |
+| **Final / target image** | — | ✅ **NEW**: extracts camera, lighting, palette, objects, textures |
+| Aesthetic block | — | ✅ `world.aesthetic` drives ambient color, vignette, bloom, exposure |
+| Camera behaviors | look_at, orbit | + dolly_in/out, crane_up/down, pan, tilt, DoF |
+| Materials | solid + checker | + noise, gradient, brick, emission, alpha, IOR |
+| Lights | color only | + color temperature (Kelvin → sRGB) |
+| Render engine | EEVEE_NEXT only | EEVEE_NEXT **or** Cycles |
+| Provenance / confidence | ✓ | ✓, also stamped as Blender custom properties |
+| Job system | — | in-memory jobs + SSE live progress |
+| **Fallback renderer** | — | ✅ **NEW**: produces MP4 even without Blender |
+| CLI | `main.py` | `npm run cli` |
+| Blender script | Python | Python (Blender's API is Python-only) |
+
+The Python layer is intentionally minimal: it now contains **two**
+scripts. `python/build_scene.py` is the full Blender compiler.
+`python/fallback_renderer.py` is the preview renderer. All LLM, schema,
+validation, job orchestration and HTTP work happens in TypeScript.
+
+## Quick start
+
+```bash
+# 1. Install dependencies
+cd wallermax-h1
+npm install
+
+# 2. Configure (defaults work out-of-the-box with the mock provider)
+cp .env.example .env
+
+# 3. Start the dev server (hot reload via tsx watch)
+npm run dev
+```
+
+Then open **http://127.0.0.1:4317/** in your browser.
+
+You should see the dark-mode Wallermax UI. Pick the **mock** provider,
+leave the prompt as the default checkerboard-room example, uncheck
+"Skip Blender" if Blender is installed (or leave it checked to only
+produce the World Model JSON), and hit **Run pipeline**. You'll get a
+`render.mp4` (real 3D if Blender is installed, preview otherwise) and a
+full set of analysis JSON files.
+
+### Run from the CLI (no web UI)
+
+```bash
+# Mock-only (no API key needed). Will try Blender, then fallback.
+npm run cli -- --prompt prompts/example.txt --provider mock
+
+# Mock + skip Blender entirely (World Model only, no MP4):
+npm run cli -- --prompt prompts/example.txt --provider mock --skip-blender
+
+# Full pipeline with OpenAI + reference + final image:
+npm run cli -- --prompt prompts/example.txt --provider openai \
+  --image reference.png --final target.jpg
+
+# Full pipeline with ZAI (sandbox):
+npm run cli -- --prompt prompts/example.txt --provider zai
+```
+
+The CLI uses the exact same renderer abstraction as the web server: if
+Blender is on PATH it runs `python/build_scene.py`; otherwise it runs
+`python/fallback_renderer.py` and prints a clear notice.
+
+### Production build
+
+```bash
+npm run build         # tsc -> dist/
+npm run serve         # node dist/server/src/index.js
+```
+
+## Project layout
+
+```
+wallermax-h1/
+├── package.json
+├── tsconfig.json
+├── .env.example
+├── .gitignore
+├── README.md
+│
+├── server/                       # Native Node.js + TypeScript
+│   └── src/
+│       ├── index.ts              # HTTP server entry
+│       ├── router.ts             # Minimal route dispatcher
+│       ├── config.ts             # .env loader, paths, defaults
+│       ├── types.ts              # Shared types
+│       ├── util.ts               # sendJson, readBody, mime, etc.
+│       ├── jobs.ts               # In-memory job store + listeners
+│       ├── pipeline.ts           # Orchestrates analyze → compile → render
+│       ├── renderer.ts           # Renderer abstraction (Blender + fallback)
+│       ├── cli.ts                # CLI entry point (npm run cli)
+│       ├── cli/report.ts         # CLI report builder
+│       ├── llm/
+│       │   ├── index.ts          # Provider factory
+│       │   ├── provider.ts       # Interface + JSON extractor
+│       │   ├── prompts.ts        # System prompts
+│       │   ├── openai.ts         # OpenAI provider (Chat Completions JSON mode)
+│       │   ├── zai.ts            # ZAI provider (z-ai-web-dev-sdk)
+│       │   └── mock.ts           # Canned-data provider (no API key needed)
+│       ├── analyzers/
+│       │   ├── schemas.ts        # JSON schema loader
+│       │   ├── scene.ts          # Unified scene analyzer (prompt + ref + final)
+│       │   └── finalImage.ts     # Standalone final-image analyzer
+│       └── handlers/
+│           ├── index.ts          # Route handlers (health, jobs, pipeline…)
+│           └── multipart.ts      # formidable wrapper
+│
+├── public/                       # Web UI (vanilla HTML/CSS/JS)
+│   ├── index.html
+│   ├── styles.css
+│   └── app.js
+│
+├── python/                       # Renderer backends (Python only)
+│   ├── build_scene.py            # Full Blender compiler
+│   ├── fallback_renderer.py      # Fallback preview renderer (PIL + ffmpeg)
+│   └── README.md
+│
+├── schemas/                      # JSON schemas (shared between LLM and Python)
+│   ├── world_model.schema.json
+│   ├── reconstruction.schema.json
+│   └── final_image.schema.json   # Final-image / look-dev analysis
+│
+├── prompts/
+│   ├── example.txt                # Text-only example (from v2)
+│   ├── reconstruction_example.txt# Image + prompt example (from v3)
+│   └── cinematic_dusk.txt        # Cinematic look-dev example
+│
+├── docs/
+│   ├── architecture.md
+│   └── api.md
+│
+└── download/                     # Reserved for user-facing downloads
+```
+
+## The three analyzers
+
+When the user supplies **prompt + reference image + final image**, the
+pipeline issues **three** LLM calls in sequence, then renders:
+
+1. **Reconstruction** — feeds the reference image to the LLM with the
+   `reconstruction.schema.json` schema. Produces a structured hypothesis
+   of the visible 3D scene (entities, lighting, camera, ambiguities).
+   Conservative: preserves confidence and provenance instead of pretending
+   a single image uniquely determines the scene.
+
+2. **Final-image analysis** — feeds the final image to the LLM with the
+   `final_image.schema.json` schema. Produces an aesthetic / look-dev
+   description (camera language, lighting mood, palette, objects,
+   textures). Aesthetic, not geometric.
+
+3. **Scene compiler** — feeds the prompt + reconstruction JSON +
+   final-image JSON to the LLM with the `world_model.schema.json` schema.
+   Produces the single World Model that the renderer consumes. This is
+   the only call that always runs, even when no images are supplied.
+
+The reconstruction and final-image analyses are kept as separate JSON
+files (`reconstruction.json`, `final_image.json`) so the user can inspect
+them in the web UI's tabs.
+
+### Why three calls instead of one?
+
+Because they have different jobs:
+
+- The reconstruction needs to be **conservative** (preserve confidence,
+  flag ambiguities). Letting it leak into the scene compiler would blur
+  provenance.
+- The final-image analysis is **aesthetic**, not geometric. Folding it
+  into the scene compiler would risk the model "copying" geometry from
+  the target image.
+- Keeping them separate lets the user override either one independently
+  (e.g. feed a reconstruction without a final image, or vice versa).
+
+### Provenance flow
+
+Every entity in the World Model carries `provenance` ∈
+{`observed`, `user_defined`, `inferred`, `creative`} and a `confidence`
+float. The Blender compiler preserves these as Blender custom properties
+on each object, so they survive into the `.blend` file and can be
+inspected in Blender's UI.
+
+### Provider abstraction
+
+`server/src/llm/provider.ts` defines a minimal interface:
+
+```ts
+interface LLMProvider {
+  readonly name: string;
+  analyze(options: AnalyzeOptions): Promise<AnalyzeResult>;
+}
+```
+
+Adding a new provider (Anthropic, a local Llama, …) means implementing
+that interface and adding a case to the factory in `llm/index.ts`. The
+shared `extractJson()` helper tolerates fenced JSON, leading prose and
+unbalanced-fence responses, so providers that don't natively support
+JSON-schema-strict output still work.
+
+### Mock provider
+
+The `MockProvider` returns canned but realistic payloads for all three
+schemas. It is **deterministic** (same inputs → same outputs) so the
+resulting render is reproducible. It lets you exercise the entire
+pipeline (and the web UI) without an API key — perfect for demos and CI.
+
+## Renderers
+
+Wallermax H1 has **two** renderer backends. The TypeScript orchestrator
+(`server/src/renderer.ts`) abstracts them behind a single `render()`
+function that tries Blender first and falls back gracefully.
+
+### 1. Blender (`python/build_scene.py`)
+
+The "real" renderer. Produces a `.blend` file and an MP4 with full PBR
+materials, real rigid-body physics, perspective camera with depth-of-field,
+and the aesthetic compositor pass (vignette / bloom / exposure).
+
+Requirements:
+
+- Blender 3.6+ (4.x recommended) installed and on PATH (or pointed to by
+  `BLENDER_BIN`).
+- Blender's bundled Python (no extra Python packages needed inside
+  Blender — `build_scene.py` only uses `bpy`, `mathutils` and the
+  standard library).
+
+Outputs:
+
+- `world.blend` — the saved Blender scene.
+- `render.mp4` — the rendered MP4 (H.264, EEVEE_NEXT or Cycles).
+
+See `python/README.md` for the full feature list and the differences
+vs. World Compiler v2.
+
+### 2. Fallback preview renderer (`python/fallback_renderer.py`)
+
+Used **automatically** when Blender is not installed, fails to start,
+or when the user explicitly requests it. It produces a top-down
+schematic / look-dev preview using only Pillow and ffmpeg.
+
+What it renders:
+
+- The room as a checkerboard floor + walls outline (top-down view).
+- Each entity as a colored 2D disk / box / cylinder icon at its X, Y
+  position.
+- Lights as colored radial glows (size and brightness derived from the
+  `power` field; color derived from `color` or `color_temperature_k`).
+- The camera as a small triangle.
+- Animated events: position changes, energy changes, color changes are
+  all keyframed over time.
+- The aesthetic block: vignette, film grain, exposure EV are applied as
+  a final compositor pass.
+
+Requirements:
+
+- Python 3.10+
+- Pillow (`pip install Pillow`)
+- numpy (`pip install numpy`)
+- ffmpeg on PATH
+
+Outputs:
+
+- `render.mp4` — H.264 MP4 (same codec as Blender's output).
+- `poster.png` — the first frame, useful as a static thumbnail.
+
+The fallback is intentionally **deterministic**: same inputs → same
+outputs. It does not honor real physics, BRDFs, perspective camera or
+complex materials — those require Blender.
+
+### How the choice is made
+
+The `render()` function in `server/src/renderer.ts` does the following:
+
+1. If `forceFallback` is `true`, skip Blender entirely and use the
+   fallback.
+2. Otherwise, check if Blender is on PATH (or at the path pointed to by
+   `BLENDER_BIN`). If yes, run `python/build_scene.py` via
+   `blender -b --python …`.
+3. If Blender is not on PATH, or if it fails to start, log a clear
+   notice and run `python/fallback_renderer.py` via `python3 …`.
+
+The job's `renderEngine` field is set to `"blender"` or `"fallback"` so
+the web UI and the API consumers can tell which renderer was used.
+
+## Configuration
+
+All configuration is read from a `.env` file at the project root (see
+`.env.example`).
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `PORT` | `4317` | TCP port for the HTTP server |
+| `HOST` | `127.0.0.1` | Bind address (use `0.0.0.0` for LAN, with care) |
+| `LLM_PROVIDER` | `mock` | `mock` / `openai` / `zai` |
+| `OPENAI_API_KEY` | — | Required when `LLM_PROVIDER=openai` |
+| `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model name |
+| `OPENAI_MODE` | `chat` | `chat` (Chat Completions, JSON-mode) or `responses` (Responses API) |
+| `ZAI_API_KEY` | — | Optional outside the Z.ai sandbox |
+| `BLENDER_BIN` | `blender` | Path to the Blender executable |
+| `SKIP_BLENDER` | `0` | `1` to never invoke Blender (World Model only) |
+| `PYTHON_BIN` | `python3` | Python interpreter used by the fallback renderer |
+| `DEFAULT_RENDER_*` | `1280×720 @ 30 fps × 10 s` | Defaults shown in the UI |
+| `MAX_UPLOAD_BYTES` | `20971520` (20 MiB) | Per-image upload cap |
+| `WALLERMAX_USER` / `WALLERMAX_PASS` | — | Optional basic-auth credentials |
+
+> **Note on `SKIP_BLENDER`**: this flag means "produce the World Model
+> JSON only, do not invoke any renderer". To use the fallback renderer
+> instead of Blender, leave `SKIP_BLENDER=0` and simply don't install
+> Blender — the fallback will be picked up automatically.
+
+## HTTP API
+
+Base URL: `http://127.0.0.1:4317` (override with `PORT` and `HOST` in `.env`).
 
 | Method | Path | Description |
-|--------|------|-------------|
+| --- | --- | --- |
 | `GET` | `/api/health` | Server health + current config |
 | `GET` | `/api/config` | Default render settings + provider |
-| `GET` | `/api/python-check` | Diagnostic: which Python interpreters are available |
-| `POST` | `/api/pipeline` | Submit a full pipeline (multipart/form-data with images) |
-| `POST` | `/api/pipeline-sync` | Submit a pipeline (JSON body, no images) |
-| `POST` | `/api/analyze` | Analyze a single final image only |
-| `GET` | `/api/jobs` | List all known jobs |
-| `GET` | `/api/jobs/:id` | Get a job's progress snapshot |
-| `GET` | `/api/jobs/:id/events` | SSE stream of progress updates |
-| `POST` | `/api/jobs/:id/abort` | Abort a running job (kills the Blender/Python process) |
-| `GET` | `/api/files/:jobId/*name` | Download an artifact (with Range support for MP4s) |
-| `GET` | `/api/download/:jobId/*name` | Alias of `/api/files` |
-| `GET` | `/static/*path` | Static assets (UI HTML/CSS/JS) |
-| `GET` | `/download/*path` | Files in the project `download/` directory |
+| `POST` | `/api/pipeline` | Submit a full pipeline (multipart/form-data). Returns `{ jobId }`. |
+| `POST` | `/api/pipeline-sync` | Same, but JSON body, no images. |
+| `POST` | `/api/analyze` | Analyze a single final image only. Returns `{ json, raw, provider, model, latencyMs }`. |
+| `GET` | `/api/jobs` | List all known jobs. |
+| `GET` | `/api/jobs/:id` | Get a job's progress snapshot (includes `renderEngine`). |
+| `GET` | `/api/jobs/:id/events` | SSE stream of progress updates for a job. |
+| `GET` | `/api/files/:jobId/:name` | Download an artifact (`world.json`, `blender/render.mp4`, …). |
+| `GET` | `/api/download/:jobId/:name` | Alias of `/api/files`. |
+| `GET` | `/static/*` | Static assets under `public/`. |
+| `GET` | `/download/*` | Files under the project `download/` directory. |
 
-### CLI
+See **`docs/api.md`** for full request/response examples.
+
+### Example: submit a pipeline with curl
+
+```bash
+curl -X POST http://127.0.0.1:4317/api/pipeline \
+  -F "prompt=@prompts/example.txt" \
+  -F "referenceImage=@reference.png" \
+  -F "finalImage=@target.jpg" \
+  -F "width=1280" -F "height=720" -F "fps=30" -F "duration=8" \
+  -F "provider=mock"
+```
+
+The response is `{ "jobId": "a1b2c3d4", "status": "queued" }`. Poll
+`/api/jobs/a1b2c3d4` (or subscribe to `/api/jobs/a1b2c3d4/events` via
+SSE) until `status` is `done`. Then download the MP4 from
+`/api/files/a1b2c3d4/blender/render.mp4`.
+
+The job's `renderEngine` field tells you whether Blender (`"blender"`)
+or the fallback (`"fallback"`) was used.
+
+## CLI
+
+The CLI (`npm run cli`) is the TypeScript equivalent of v2/v3's
+`main.py` and `reconstruction_pipeline.py`. It runs the same pipeline
+as the web server, just without the HTTP layer.
 
 ```bash
 npm run cli -- --prompt <file> [--image <file>] [--final <file>]
                        [--provider mock|openai|zai] [--model <name>]
                        [--skip-blender] [--out <dir>]
-                       [--width 640] [--height 360] [--fps 24] [--duration 2]
-                       [--engine BLENDER_EEVEE_NEXT|CYCLES] [--samples 16]
+                       [--width 1280] [--height 720] [--fps 30] [--duration 10]
+                       [--engine BLENDER_EEVEE_NEXT|CYCLES] [--samples 64]
 ```
 
-The CLI uses the exact same renderer abstraction as the web server: tries
-Blender first, falls back to the preview renderer if Blender is not installed.
-
-### Configuration
-
-All configuration is read from a `.env` file at the project root:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `4317` | TCP port for the HTTP server |
-| `HOST` | `127.0.0.1` | Bind address |
-| `LLM_PROVIDER` | `mock` | `mock` / `openai` / `zai` |
-| `OPENAI_API_KEY` | — | Required when `LLM_PROVIDER=openai` |
-| `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model name |
-| `ZAI_API_KEY` | — | Optional outside the Z.ai sandbox |
-| `BLENDER_BIN` | `blender` | Path to the Blender executable |
-| `SKIP_BLENDER` | `0` | `1` to never invoke Blender |
-| `PYTHON_BIN` | `python3` | Python interpreter for the fallback renderer |
-| `DEFAULT_RENDER_*` | `640×360 @ 24 fps × 2 s` | Defaults shown in the UI |
-| `MAX_UPLOAD_BYTES` | `20971520` (20 MiB) | Per-image upload cap |
-| `WALLERMAX_USER` / `WALLERMAX_PASS` | — | Optional basic-auth |
-
-### Architecture
-
-```
-server/src/
-├── index.ts              # HTTP server entry
-├── router.ts             # Route dispatcher (supports :param and *splat)
-├── config.ts             # .env loader (singleton config)
-├── types.ts              # Shared TypeScript types
-├── util.ts               # safeJoin, mimeFromExt, sendJson, readBody
-├── jobs.ts               # In-memory job store + SSE + abort support
-├── pipeline.ts           # Orchestrates: analyze → compile → render
-├── renderer.ts           # Renderer abstraction (Blender + fallback + probe)
-├── cli.ts                # CLI entry point
-├── llm/
-│   ├── index.ts          # Provider factory
-│   ├── provider.ts       # Interface + extractJson() + runPythonCode()
-│   ├── prompts.ts        # System prompts (scene compiler, reconstruction, final-image)
-│   ├── openai.ts         # OpenAI provider (Chat Completions JSON-mode)
-│   ├── zai.ts            # ZAI provider (z-ai-web-dev-sdk)
-│   └── mock.ts           # Mock provider with color parsing
-├── analyzers/
-│   ├── schemas.ts        # JSON schema loader
-│   ├── scene.ts          # Unified scene analyzer (prompt + ref + final)
-│   └── finalImage.ts     # Standalone final-image analyzer
-└── handlers/
-    ├── index.ts          # All HTTP route handlers
-    └── multipart.ts      # Formidable wrapper for file uploads
-
-python/
-├── build_scene.py        # Full Blender compiler (1500+ lines)
-├── fallback_renderer.py  # PIL + ffmpeg preview renderer
-└── diagnose_video_api.py # Diagnostic script for Blender's video API
-
-schemas/
-├── world_model.schema.json      # World Model JSON schema
-├── reconstruction.schema.json   # Reference-image reconstruction schema
-└── final_image.schema.json      # Final-image look-dev schema
-
-public/
-├── index.html            # Single-page UI
-├── styles.css            # Dark-mode theme
-└── app.js                # UI controller (SSE, tabs, drag-drop, stop)
-
-prompts/
-├── example.txt                  # Text-only example
-├── reconstruction_example.txt   # Image + prompt example
-└── cinematic_dusk.txt           # Cinematic look-dev example
-```
-
-### Known limitations
-
-1. **Blender 5.2 video output** — the `FFMPEG` enum value is listed in
-   `image_settings.file_format` but cannot be assigned from Python (raises
-   `TypeError`). This is a bug in Blender 5.2 LTS. The workaround is to
-   render PNG frames and encode them with ffmpeg externally — this is the
-   standard industry approach and works reliably.
-
-2. **Blender 5.2 `scene.render.outputs`** — this API (introduced in 5.0/5.1)
-   does not exist in the 5.2 LTS build. The diagnostic script
-   (`python/diagnose_video_api.py`) confirms this.
-
-3. **Single-image reconstruction** — the reconstruction analyzer works with
-   one reference image. Multi-view reconstruction is not supported.
-
-4. **Mock provider ignores the prompt** — the mock provider always returns
-   a ball-in-checkerboard-room scene. It only parses basic color words
-   ("green ball", "blue box"). For real prompt-driven scene generation,
-   use the `openai` or `zai` provider.
-
-5. **Ball animation** — in Blender 5.2, `keyframe_insert()` creates an
-   Action but may not automatically bind it to the object's
-   `animation_data.action`. The script includes a `_verify_action_binding()`
-   function that detects and fixes this, but some Blender builds may still
-   not evaluate the animation during render. This is being investigated.
-
-6. **No persistence** — jobs are in-memory. Restarting the server clears
-   them. Artifacts (world.json, render.mp4, etc.) live on disk under
-   `.wallermax/<jobId>/` until the workdir is cleaned.
-
-### Quick start
+Examples:
 
 ```bash
-# Install
-cd wallermax-h1
-npm install
-cp .env.example .env
+# Mock + skip Blender (only the World Model is produced):
+npm run cli -- --prompt prompts/example.txt --provider mock --skip-blender
 
-# Start the dev server
-npm run dev
+# Mock + render (will use Blender if available, else fallback):
+npm run cli -- --prompt prompts/example.txt --provider mock
 
-# Open http://127.0.0.1:4317/ in your browser
+# Full pipeline with OpenAI + reference + final image:
+npm run cli -- --prompt prompts/example.txt --provider openai \
+  --image reference.png --final target.jpg
 ```
 
-For real LLM-driven scene generation, edit `.env`:
+## Web UI
+
+Open `http://127.0.0.1:4317/` after starting the server. The UI is
+single-page, dark-mode, and built with vanilla HTML/CSS/JS (no React,
+no Next.js, no bundler).
+
+### Left panel — Inputs
+
+- **Prompt** textarea (pre-filled with the v2 example).
+- **Reference image** dropzone (optional).
+- **Final image** dropzone (optional).
+- **Render settings**: width, height, fps, duration, engine, samples.
+- **LLM provider** dropdown: `mock` / `openai` / `zai`.
+- **Skip Blender** checkbox.
+- **Advanced**: model override, extra system prompt.
+- Two action buttons: **Run pipeline** and **Analyze final image**.
+
+### Right panel — Pipeline
+
+- Progress bar with live SSE updates.
+- Six tabs:
+  - **World Model** — pretty-printed JSON.
+  - **Reconstruction** — pretty-printed reconstruction JSON.
+  - **Final Image** — pretty-printed final-image analysis JSON.
+  - **Report** — the generated `scene_report.md`.
+  - **Render** — an HTML5 `<video>` player for the MP4, with download
+    links and a badge showing whether Blender or the fallback was used.
+  - **Jobs** — table of the last 25 jobs, with a "open" button that
+    re-loads a job's outputs into the current view.
+
+## Examples
+
+The `prompts/` directory contains three example prompts:
+
+| File | Description |
+| --- | --- |
+| `prompts/example.txt` | The v2 text-only example: a red ball bouncing in a checkerboard room. |
+| `prompts/reconstruction_example.txt` | The v3 image + prompt example: reconstruct a room from a reference image. |
+| `prompts/cinematic_dusk.txt` | A cinematic look-dev example with warm-cool lighting and shallow DoF. |
+
+To run any of them from the CLI:
+
 ```bash
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-your-key-here
-OPENAI_MODEL=gpt-4o-mini
+npm run cli -- --prompt prompts/cinematic_dusk.txt --provider mock
 ```
 
-### License
+## Troubleshooting
+
+### "Blender not found at 'blender' — using fallback preview renderer."
+
+This is **not** an error. It means Blender is not installed on your
+machine (or not on PATH). Wallermax H1 automatically falls back to the
+preview renderer. To get the full 3D render:
+
+1. Install Blender 3.6+ from https://www.blender.org/download/.
+2. Make sure the `blender` command is on PATH, or set `BLENDER_BIN`
+   in `.env` to the absolute path of the Blender executable.
+3. Restart the server.
+
+### "OPENAI_API_KEY is not set"
+
+You set `LLM_PROVIDER=openai` but did not provide an API key. Either:
+
+- Set `OPENAI_API_KEY` in `.env`, or
+- Switch to `LLM_PROVIDER=mock` (no key needed), or
+- Switch to `LLM_PROVIDER=zai` (works inside the Z.ai sandbox).
+
+### "Fallback renderer exited with code N"
+
+The fallback renderer failed. Check that:
+
+- `python3` is on PATH (or set `PYTHON_BIN` in `.env`).
+- The `Pillow` and `numpy` Python packages are installed:
+  ```bash
+  pip install Pillow numpy
+  ```
+- `ffmpeg` is on PATH:
+  ```bash
+  ffmpeg -version
+  ```
+
+### The MP4 plays but the colors look flat / weird
+
+This is expected when the fallback renderer is used — it produces a
+schematic top-down preview, not a photorealistic render. Install Blender
+to get the full PBR render.
+
+### The job's `renderEngine` field is `undefined`
+
+The job has not reached the render stage yet. Wait until `status` is
+`done`. Once it is, `renderEngine` will be either `"blender"` or
+`"fallback"`.
+
+### I want to force the fallback renderer even though Blender is installed
+
+Set `SKIP_BLENDER=1` to skip rendering entirely (World Model only), or
+toggle the "Skip Blender" checkbox in the web UI. There is currently no
+"force fallback" option — if Blender is installed, it will be used.
+
+## License
 
 MIT.

@@ -47,6 +47,10 @@
     renderLinks: $("render-links"),
     jobsBody: $("jobs-body"),
     providerBadge: $("provider-badge"),
+    btnPaste: $("btn-paste"),
+    btnClearPrompt: $("btn-clear-prompt"),
+    btnClearRef: $("btn-clear-ref"),
+    btnClearFinal: $("btn-clear-final"),
   };
 
   let currentJobId = null;
@@ -65,6 +69,12 @@
     el.btnPythonCheck.addEventListener("click", onPythonCheck);
     // Show/hide the mock warning banner when the provider changes.
     el.provider.addEventListener("change", updateMockWarning);
+    el.btnPaste.addEventListener("click", onPaste);
+    el.btnClearPrompt.addEventListener("click", onClearPrompt);
+    el.btnClearRef.addEventListener("click", onClearRef);
+    el.btnClearFinal.addEventListener("click", onClearFinal);
+
+
     refreshJobs();
     setInterval(refreshJobs, 4000);
     fetchConfig();
@@ -127,12 +137,22 @@ Be physically plausible. If some information is not observable or explicitly spe
     });
     input.addEventListener("change", () => updateFilename(dz, input));
   }
-
+/*
   function updateFilename(dz, input) {
     const fn = dz.querySelector(".filename");
     fn.textContent = input.files && input.files.length ? input.files[0].name : "";
+  }*/
+   function updateFilename(dz, input) {
+    const fn = dz.querySelector(".filename");
+    const hasFile = input.files && input.files.length > 0;
+    fn.textContent = hasFile ? input.files[0].name : "";
+    // Show/hide the clear button.
+    if (dz === el.dzRef) {
+      el.btnClearRef.hidden = !hasFile;
+    } else if (dz === el.dzFinal) {
+      el.btnClearFinal.hidden = !hasFile;
+    }
   }
-
   // ─── Tabs ─────────────────────────────────────────────────
   function wireTabs() {
     const tabs = document.querySelectorAll(".tab-btn");
@@ -482,6 +502,44 @@ Be physically plausible. If some information is not observable or explicitly spe
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(() => t.remove(), 4500);
   }
+
+
+   // ─── Prompt toolbar ──────────────────────────────────────
+  async function onPaste() {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        el.prompt.value = text;
+        toast("Prompt pasted from clipboard.", "ok");
+      } else {
+        toast("Clipboard is empty.", "err");
+      }
+    } catch (err) {
+      toast("Cannot read clipboard. Paste manually (Ctrl+V).", "err");
+    }
+  }
+
+  function onClearPrompt() {
+    el.prompt.value = "";
+    el.prompt.focus();
+    toast("Prompt cleared.");
+  }
+
+  // ─── Clear image buttons ─────────────────────────────────
+  function onClearRef() {
+    el.refInput.value = "";
+    updateFilename(el.dzRef, el.refInput);
+    el.btnClearRef.hidden = true;
+    toast("Reference image removed.");
+  }
+
+  function onClearFinal() {
+    el.finalInput.value = "";
+    updateFilename(el.dzFinal, el.finalInput);
+    el.btnClearFinal.hidden = true;
+    toast("Final image removed.");
+  }
+
 
   document.addEventListener("DOMContentLoaded", init);
 })();

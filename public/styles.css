@@ -136,6 +136,47 @@ a:hover { text-decoration: underline; }
 }
 .ghost-btn:hover { color: var(--text); border-color: #3a4256; }
 
+
+/* ─── Prompt toolbar ────────────────────────────────────── */
+.prompt-toolbar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.toolbar-btn {
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border-2);
+  color: var(--text-dim);
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: var(--font);
+  transition: all 0.15s ease;
+}
+.toolbar-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* ─── Clear image button ─────────────────────────────────── */
+.clear-img-btn {
+  width: 100%;
+  margin-top: 6px;
+  background: transparent;
+  border: 1px dashed var(--err);
+  color: var(--err);
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: var(--font);
+  transition: all 0.15s ease;
+}
+.clear-img-btn:hover {
+  background: rgba(248, 113, 113, 0.1);
+}
+
 /* ─── Layout ────────────────────────────────────────────── */
 .layout {
   display: grid;

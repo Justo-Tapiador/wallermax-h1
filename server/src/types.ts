@@ -146,7 +146,7 @@ export interface WorldModel {
 export interface PipelineRequest {
   prompt: string;
   systemPromptExtra?: string;
-  provider: "openai" | "zai" | "mock";
+  provider: "openai" | "zai" | "mock" | "deepseek";
   model?: string;
   referenceImage?: { name: string; path: string; mime: string };
   finalImage?: { name: string; path: string; mime: string };
@@ -212,6 +212,6 @@ export interface ServerConfig {
   skipBlender: boolean;
   defaultRender: { width: number; height: number; fps: number; duration: number };
   maxUploadBytes: number;
-  provider: "openai" | "zai" | "mock";
+  provider: "openai" | "zai" | "mock" | "deepseek";
   basicAuth?: { user: string; pass: string };
 }

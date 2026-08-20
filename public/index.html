@@ -31,11 +31,16 @@
 
         <div class="field">
           <label for="prompt">Prompt</label>
+          <div class="prompt-toolbar">
+            <button type="button" id="btn-paste" class="toolbar-btn" title="Paste from clipboard">📋 Paste</button>
+            <button type="button" id="btn-clear-prompt" class="toolbar-btn" title="Clear prompt text">✖ Clear</button>
+          </div>
           <textarea id="prompt" rows="8" placeholder="Describe the scene: room, objects, lighting, camera, behavior…"></textarea>
           <p class="hint">Plain English. The LLM will turn this into a declarative World Model.</p>
         </div>
 
         <div class="grid-2">
+          
           <div class="field">
             <label for="referenceImage">Reference image <span class="opt">optional</span></label>
             <div class="dropzone" id="dz-ref">
@@ -43,6 +48,7 @@
               <p>Drop a reference image<br /><small>Used to reconstruct the visible 3D scene.</small></p>
               <span class="filename"></span>
             </div>
+            <button type="button" id="btn-clear-ref" class="clear-img-btn" hidden>✖ Remove image</button>
           </div>
 
           <div class="field">
@@ -52,6 +58,7 @@
               <p>Drop a target / look-dev image<br /><small>Extracts camera, lighting, palette, textures.</small></p>
               <span class="filename"></span>
             </div>
+            <button type="button" id="btn-clear-final" class="clear-img-btn" hidden>✖ Remove image</button>
           </div>
         </div>
 
@@ -91,6 +98,7 @@
             <select id="provider">
               <option value="mock">mock (ignores prompt — testing only)</option>
               <option value="openai">openai (real LLM — needs API key)</option>
+              <option value="deepseek">deepseek (needs DEEPSEEK_API_KEY)</option>
               <option value="zai">zai (sandbox LLM)</option>
             </select>
           </div>

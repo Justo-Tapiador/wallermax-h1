@@ -1,35 +1,9 @@
 {
   "name": "wallermax-h1",
   "version": "1.0.0",
-  "description": "Wallermax H1 — Beta prototype of a video generator based on 3D scene rendering. Sends prompt + images to an LLM, receives a declarative World Model JSON, and compiles it into an MP4 via Blender + Python.",
-  "author": "Justo Tapiador García",
+  "description": "Wallermax H1 — Procedural 3D scene compiler. Text + reference image + final image -> semantic World Model -> Blender -> MP4. Native Node.js + TypeScript web server.",
   "license": "MIT",
   "type": "module",
-  "homepage": "https://github.com/Justo-Tapiador/wallermax-h1#readme",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Justo-Tapiador/wallermax-h1.git"
-  },
-  "bugs": {
-    "url": "https://github.com/Justo-Tapiador/wallermax-h1/issues"
-  },
-  "keywords": [
-    "blender",
-    "3d-rendering",
-    "video-generation",
-    "llm",
-    "procedural",
-    "animation",
-    "mp4",
-    "world-model",
-    "scene-compiler",
-    "typescript",
-    "python",
-    "ffmpeg",
-    "eevee",
-    "cycles",
-    "pillow"
-  ],
   "engines": {
     "node": ">=20"
   },
@@ -41,21 +15,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "cli": "tsx server/src/cli.ts"
   },
-  "files": [
-    "server/src/",
-    "python/",
-    "schemas/",
-    "prompts/",
-    "public/",
-    "docs/",
-    "download/",
-    ".env.example",
-    "tsconfig.json",
-    "README.md"
-  ],
   "dependencies": {
     "formidable": "^3.5.2",
-    "openai": "^4.77.0"
+    "openai": "^4.77.0",
+    "z-ai-web-dev-sdk": "*"
   },
   "devDependencies": {
     "@types/formidable": "^3.4.5",

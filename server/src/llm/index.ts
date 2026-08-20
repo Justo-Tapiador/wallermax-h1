@@ -5,8 +5,9 @@ import type { LLMProvider } from "./provider.js";
 import { MockProvider } from "./mock.js";
 import { OpenAIProvider } from "./openai.js";
 import { ZAIProvider } from "./zai.js";
+import { DeepSeekProvider } from "./deepseek.js"; 
 
-export type ProviderName = "openai" | "zai" | "mock";
+export type ProviderName = "openai" | "zai" | "mock" | "deepseek";
 
 const cache = new Map<ProviderName, LLMProvider>();
 
@@ -25,6 +26,9 @@ export function getProvider(name?: ProviderName): LLMProvider {
       break;
     case "zai":
       provider = new ZAIProvider();
+      break;
+      case "deepseek":
+      provider = new DeepSeekProvider();
       break;
     case "mock":
     default:

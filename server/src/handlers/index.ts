@@ -267,7 +267,7 @@ export async function postPipeline(req: IncomingMessage, res: ServerResponse): P
   const pReq: PipelineRequest = {
     prompt,
     systemPromptExtra: form.fields.systemPromptExtra,
-    provider: ((form.fields.provider as "openai" | "zai" | "mock") || config.provider),
+    provider: ((form.fields.provider as "openai" | "zai" | "mock" | "deepseek") || config.provider),
     model: form.fields.model || undefined,
     referenceImage: form.files.referenceImage
       ? {
@@ -328,7 +328,7 @@ export async function postPipelineSync(req: IncomingMessage, res: ServerResponse
   }
   const pReq: PipelineRequest = {
     prompt,
-    provider: ((parsed.provider as "openai" | "zai" | "mock") || config.provider),
+    provider: ((parsed.provider as "openai" | "zai" | "mock" | "deepseek") || config.provider),
     model: parsed.model as string | undefined,
     render: {
       width: (parsed.width as number) || config.defaultRender.width,
