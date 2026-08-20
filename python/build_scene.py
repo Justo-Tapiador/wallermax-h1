@@ -598,24 +598,30 @@ def apply_behavior(e, o, objs, scene):
         o.keyframe_insert("location", frame=1)
         o.keyframe_insert("rotation_euler", frame=1)
 
-        direction_map = {
-            "dolly_in": Vector((0, -1, 0)),
-            "dolly_out": Vector((0, 1, 0)),
+        # A3 (revised): dolly_in/out move forward/backward in CAMERA local space.
+        # Blender cameras look down -Z by default, so forward = (0,0,-1).
+        # crane_up/down move vertically in WORLD space (Z axis) and must NOT
+        # be transformed by the camera rotation (otherwise they would tilt
+        # the camera position along its view axis).
+        local_dir_map = {
+            "dolly_in": Vector((0, 0, -1)),
+            "dolly_out": Vector((0, 0, 1)),
+        }
+        world_dir_map = {
             "crane_up": Vector((0, 0, 1)),
             "crane_down": Vector((0, 0, -1)),
         }
-        if typ in direction_map:
+        if typ in local_dir_map:
             distance = float(b.get("distance", 2.0))
-            # A3: Transform the direction vector to local space so dolly_in
-            # moves forward (along camera's view direction), not along world -Y.
-            # matrix_world.to_3x3() gives the rotation; we apply it to the
-            # world-space direction vector.
             try:
                 local_rot = o.matrix_world.to_3x3()
-                move = local_rot @ direction_map[typ] * distance
+                move = local_rot @ local_dir_map[typ] * distance
             except Exception:
-                # Fallback (e.g. Blender API quirk): use world-space direction.
-                move = direction_map[typ] * distance
+                move = local_dir_map[typ] * distance
+            o.location = start_loc + move
+        elif typ in world_dir_map:
+            distance = float(b.get("distance", 2.0))
+            move = world_dir_map[typ] * distance
             o.location = start_loc + move
         elif typ == "pan":
             o.rotation_euler[2] = start_rot[2] + math.radians(float(b.get("angle", 30.0)))
