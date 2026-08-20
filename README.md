@@ -1,15 +1,20 @@
 # Wallermax H1
 
-> **Wallermax H1 is a video generator based on 3D rendering.**
+![Demo](docs/render.gif)
+
+> **⚠️ BETA PROTOTYPE — NOT PRODUCTION-READY**
 >
-> It turns a natural-language prompt, an optional reference image, and an
-> optional final / look-dev image into a short MP4 video by compiling all
-> three into a single declarative *World Model* and rendering it.
+> Wallermax H1 is a **beta prototype** of a **video generator based on 3D scene
+> rendering**. It is an experimental project that demonstrates how a Large Language
+> Model (LLM) can be used to translate a natural-language description — optionally
+> accompanied by reference and look-dev images — into a fully procedural 3D
+> animation rendered as an MP4 video.
 >
-> The server runs on native Node.js + TypeScript — no Next.js, no React.
-> Blender is the primary renderer. When Blender is not installed, an
-> **included fallback preview renderer** (Python + Pillow + ffmpeg)
-> produces a top-down schematic MP4 so the pipeline always works.
+> The core idea: **send all available context (prompt, images, render settings) to
+> an LLM via its API, receive a structured JSON "World Model" that describes every
+> object, light, camera and event in the scene, then feed that JSON to a Python
+> script that drives Blender (or any other 3D modeling application with a Python
+> API) to produce the animation.**
 
 ---
 
