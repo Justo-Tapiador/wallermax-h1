@@ -160,8 +160,18 @@ def _get_material_node_tree(mat):
 
 
 def make_material(name, spec):
-    """Build a Principled BSDF material from a Wallermax material block."""
-    spec = spec or {}
+    """Build a Principled BSDF material from a Wallermax material block.
+
+    Defensive: if `spec` is a string (some LLMs emit "material": "wood.jpg"
+    instead of {"texture_image": "wood.jpg"}), coerce it to a dict.
+    """
+    if isinstance(spec, str):
+        # Treat a bare string as a texture_image filename.
+        spec = {"texture_image": spec}
+    elif not isinstance(spec, dict):
+        spec = {}
+    else:
+        spec = spec or {}
     mat = bpy.data.materials.new(name)
     nt = _get_material_node_tree(mat)
     if nt is None:
@@ -390,8 +400,12 @@ def build_room(e):
 
     # Floor: respect the entity's material if provided (supports PBR textures
     # via metadata.floor_material), otherwise fall back to the checker material.
+    # Defensive: some LLMs emit material/floor_material as a bare string instead
+    # of an object — coerce to dict so make_material can handle it.
     floor_spec = md.get("floor_material") or (e.get("material") if e.get("type") != "room" else None)
-    if floor_spec:
+    if isinstance(floor_spec, str):
+        floor_spec = {"texture_image": floor_spec}
+    if floor_spec and isinstance(floor_spec, dict):
         floor_mat = make_material(e["id"] + "_floor_mat", floor_spec)
     else:
         floor_mat = make_checker_material(e["id"] + "_floor_checker", tile, plane_size=x)
@@ -403,9 +417,11 @@ def build_room(e):
     ceiling.rotation_euler = (math.radians(180), 0, 0)
 
     # Walls: respect metadata.wall_material if provided, otherwise fall back
-    # to the solid neutral color.
+    # to the solid neutral color. Same defensive coercion as above.
     wall_spec = md.get("wall_material")
-    if wall_spec:
+    if isinstance(wall_spec, str):
+        wall_spec = {"texture_image": wall_spec}
+    if wall_spec and isinstance(wall_spec, dict):
         wall_mat = make_material(e["id"] + "_wall_mat", wall_spec)
     else:
         wall_mat = make_material(e["id"] + "_wall", {
