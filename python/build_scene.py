@@ -1155,6 +1155,17 @@ def compile_world(world, out_dir):
 
         if typ == "room":
             build_room(e)
+            # A8: Register the room in objs so behaviors can target it
+            # by id. We create an empty at the room's center (its transform
+            # position, defaulting to [0,0,0]) as a stable anchor for
+            # orbit/look_at/follow behaviors.
+            try:
+                room_pos = (e.get("transform", {}) or {}).get("position", [0, 0, 0])
+                room_anchor = add_empty(e["id"] + "_anchor", room_pos)
+                if room_anchor is not None:
+                    objs[e["id"]] = room_anchor
+            except Exception as exc:
+                print(f"WALLERMAX_ROOM_ANCHOR_FAIL: '{e.get('id')}' - {exc}")
             continue
         if typ in {"light", "point_light", "area_light", "spot_light", "sun"}:
             o = add_light(e)
