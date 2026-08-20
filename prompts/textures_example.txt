@@ -1,0 +1,22 @@
+Create a 6x3x6 m cubic room centered at the origin (position [0,0,0]).
+
+Apply the texture 'wood.jpg' (uploaded as referenceImage) to the floor.
+Apply the texture 'brick.jpg' (uploaded as finalImage) to the four walls.
+
+Use type:"room" with metadata.floor_material and metadata.wall_material
+to assign them:
+  - floor_material: { texture_image: "wood.jpg", pattern_scale: 3.0, roughness: 0.6 }
+  - wall_material:  { texture_image: "brick.jpg", pattern_scale: 2.0, roughness: 0.8 }
+
+Lighting:
+- One SUN light at position [10, 10, 10], rotation [-45, 0, -45],
+  power 5.0, color [1, 1, 0.95], color_temperature_k 5500.
+- ambient_color [0.5, 0.5, 0.5], ambient_intensity 1.0 (bright daylight).
+- DO NOT use mood: melancholic, golden_hour, or noir. Use mood: bright.
+
+Camera:
+- Position [0, -8, 3] (outside the room, looking toward the origin).
+- look_at [0, 0, 1.5].
+- lens 35mm, sensor_width 36, projection perspective.
+- behavior: orbit 90 degrees around the room center over 3 seconds.
+  target: "room" (the room entity).

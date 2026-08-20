@@ -1,6 +1,6 @@
 {
   "name": "wallermax-h1",
-  "version": "1.0.0",
+  "version": "1.0.1", 
   "description": "Wallermax H1 — Procedural 3D scene compiler. Text + reference image + final image -> semantic World Model -> Blender -> MP4. Native Node.js + TypeScript web server.",
   "license": "MIT",
   "type": "module",

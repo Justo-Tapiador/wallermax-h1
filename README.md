@@ -27,13 +27,16 @@
 5. [Project layout](#project-layout)
 6. [The three analyzers](#the-three-analyzers)
 7. [Renderers](#renderers)
-8. [Configuration](#configuration)
-9. [HTTP API](#http-api)
-10. [CLI](#cli)
-11. [Web UI](#web-ui)
-12. [Examples](#examples)
-13. [Troubleshooting](#troubleshooting)
-14. [License](#license)
+8. [PBR textures (NEW in v1.0.1)](#pbr-textures-new-in-v101)
+9. [Camera behaviors](#camera-behaviors)
+10. [Configuration](#configuration)
+11. [HTTP API](#http-api)
+12. [CLI](#cli)
+13. [Web UI](#web-ui)
+14. [Examples](#examples)
+15. [Troubleshooting](#troubleshooting)
+16. [Changelog](#changelog)
+17. [License](#license)
 
 ---
 
@@ -113,13 +116,14 @@ consumes, never raw mesh data) and adds significant new functionality.
 | Concern | v2 / v3 | **Wallermax H1** |
 | --- | --- | --- |
 | Orchestration language | Python | **TypeScript (native Node.js)** |
-| LLM calls | `openai` Python SDK | `openai` Node SDK **+ ZAI SDK + Mock** (provider-agnostic) |
+| LLM calls | `openai` Python SDK | `openai` Node SDK **+ ZAI SDK + Mock + DeepSeek** (provider-agnostic) |
 | Web UI | none | **Built-in dark-mode web UI** (HTML/CSS/JS, no React) |
 | Reference image | ✓ (single) | ✓ (reconstruction schema) |
 | **Final / target image** | — | ✅ **NEW**: extracts camera, lighting, palette, objects, textures |
 | Aesthetic block | — | ✅ `world.aesthetic` drives ambient color, vignette, bloom, exposure |
+| **PBR image textures** | — | ✅ **NEW in v1.0.1**: `texture_image`, `normal_image`, `roughness_image` |
 | Camera behaviors | look_at, orbit | + dolly_in/out, crane_up/down, pan, tilt, DoF |
-| Materials | solid + checker | + noise, gradient, brick, emission, alpha, IOR |
+| Materials | solid + checker | + noise, gradient, brick, emission, alpha, IOR, **image textures** |
 | Lights | color only | + color temperature (Kelvin → sRGB) |
 | Render engine | EEVEE_NEXT only | EEVEE_NEXT **or** Cycles |
 | Provenance / confidence | ✓ | ✓, also stamped as Blender custom properties |
@@ -171,6 +175,9 @@ npm run cli -- --prompt prompts/example.txt --provider openai \
 
 # Full pipeline with ZAI (sandbox):
 npm run cli -- --prompt prompts/example.txt --provider zai
+
+# Full pipeline with DeepSeek (text-only LLM, no vision):
+npm run cli -- --prompt prompts/textures_example.txt --provider deepseek
 ```
 
 The CLI uses the exact same renderer abstraction as the web server: if
@@ -212,6 +219,7 @@ wallermax-h1/
 │       │   ├── prompts.ts        # System prompts
 │       │   ├── openai.ts         # OpenAI provider (Chat Completions JSON mode)
 │       │   ├── zai.ts            # ZAI provider (z-ai-web-dev-sdk)
+│       │   ├── deepseek.ts       # DeepSeek provider (text-only, OpenAI-compatible)
 │       │   └── mock.ts           # Canned-data provider (no API key needed)
 │       ├── analyzers/
 │       │   ├── schemas.ts        # JSON schema loader
@@ -227,23 +235,25 @@ wallermax-h1/
 │   └── app.js
 │
 ├── python/                       # Renderer backends (Python only)
-│   ├── build_scene.py            # Full Blender compiler
+│   ├── build_scene.py            # Full Blender compiler (PBR textures supported)
 │   ├── fallback_renderer.py      # Fallback preview renderer (PIL + ffmpeg)
 │   └── README.md
 │
 ├── schemas/                      # JSON schemas (shared between LLM and Python)
-│   ├── world_model.schema.json
+│   ├── world_model.schema.json   # v1.0.1: PBR textures + behavior.distance + room.target
 │   ├── reconstruction.schema.json
 │   └── final_image.schema.json   # Final-image / look-dev analysis
 │
 ├── prompts/
 │   ├── example.txt                # Text-only example (from v2)
 │   ├── reconstruction_example.txt# Image + prompt example (from v3)
-│   └── cinematic_dusk.txt        # Cinematic look-dev example
+│   ├── cinematic_dusk.txt        # Cinematic look-dev example
+│   └── textures_example.txt      # NEW v1.0.1: PBR textures with text-only LLM
 │
 ├── docs/
 │   ├── architecture.md
-│   └── api.md
+│   ├── api.md
+│   └── textures.md               # NEW v1.0.1: PBR textures guide
 │
 └── download/                     # Reserved for user-facing downloads
 ```
@@ -317,6 +327,28 @@ The `MockProvider` returns canned but realistic payloads for all three
 schemas. It is **deterministic** (same inputs → same outputs) so the
 resulting render is reproducible. It lets you exercise the entire
 pipeline (and the web UI) without an API key — perfect for demos and CI.
+
+### DeepSeek provider (text-only)
+
+The `DeepSeekProvider` is a thin wrapper around the OpenAI-compatible
+DeepSeek API (model `deepseek-chat`). It uses the **Chat Completions**
+endpoint with JSON mode and `temperature: 0.2`. **DeepSeek does not
+support image inputs**, so:
+
+- Calls 1 (reconstruction) and 2 (final-image analysis) are **skipped
+  automatically** when DeepSeek is the provider and images are supplied.
+- Only Call 3 (scene compiler) runs. The system annotates the prompt
+  with the **filenames** of the uploaded images (e.g.
+  `[Uploaded image #1: filename="wood.jpg"]`) so the LLM can still
+  emit `material.texture_image: "wood.jpg"` even though it cannot see
+  the image pixels.
+- The compiler's `resolveTextureName()` post-processor then resolves
+  those bare filenames to the absolute upload paths on disk before
+  passing the World Model to Blender.
+
+This means **text-only LLMs can still drive PBR-textured scenes** —
+the user just has to mention the filenames explicitly in the prompt
+("apply texture 'wood.jpg' to the floor").
 
 ## Renderers
 
@@ -396,6 +428,182 @@ The `render()` function in `server/src/renderer.ts` does the following:
 The job's `renderEngine` field is set to `"blender"` or `"fallback"` so
 the web UI and the API consumers can tell which renderer was used.
 
+## PBR textures (NEW in v1.0.1)
+
+Starting with **v1.0.1**, the World Model supports **PBR image textures**.
+The `material` block of any entity can now carry:
+
+```jsonc
+{
+  "material": {
+    "base_color": [1, 1, 1, 1],            // white multiplier when a texture is used
+    "roughness": 0.6,
+    "metallic": 0.0,
+    "texture_image":  "wood.jpg",            // albedo map (sRGB)
+    "normal_image":   "wood_normal.png",     // tangent-space normal map (Non-Color)
+    "roughness_image":"wood_roughness.png",  // grayscale roughness map (Non-Color)
+    "normal_strength": 1.0,                  // optional, default 1.0
+    "pattern_scale": 4.0                     // tiling (4.0 = 4×4 repeats across UV)
+  }
+}
+```
+
+The Blender compiler (`python/build_scene.py:make_material`) creates the
+appropriate shader nodes (`ShaderNodeTexImage`, `ShaderNodeNormalMap`,
+`ShaderNodeMapping`, `ShaderNodeUVMap`) and connects them to the
+Principled BSDF. Color spaces are set correctly:
+**sRGB** for `texture_image`, **Non-Color** for `normal_image` and
+`roughness_image`.
+
+### Texture resolution
+
+When a texture filename is emitted by the LLM (e.g. `"wood.jpg"`), the
+TypeScript orchestrator (`server/src/analyzers/scene.ts`) tries to
+resolve it to the absolute upload path on disk. The resolution strategy,
+in order:
+
+1. **Exact match** on the uploaded filename (e.g. the LLM emits
+   `"1787229211108-wood.jpg"` and the upload is named exactly that).
+2. **Basename match** (the LLM may strip the directory part).
+3. **Suffix match** — the upload name **ends with** the LLM-emitted
+   name. This handles the case where the server renames uploads with
+   a timestamp prefix (e.g. upload `"1787229211108-wood.jpg"` matches
+   the LLM's `"wood.jpg"`).
+4. **Case-insensitive suffix match** (Windows-friendly).
+5. **Absolute path or URL** — if the LLM emits a path starting with
+   `/`, `http`, or a Windows drive letter (`C:\`), it is used as-is.
+
+If resolution fails, the compiler logs
+`WALLERMAX_TEXTURE_RESOLVE_FAIL` and the render continues with the
+base color instead of the texture.
+
+### How to use textures with a text-only LLM (no vision)
+
+DeepSeek, Llama-3-text, and similar LLMs **cannot see images**. To use
+PBR textures with them, follow this recipe:
+
+1. **Upload the images with simple, predictable filenames** from the
+   web UI. The server will rename them with a timestamp prefix
+   (e.g. `1787229211108-wood.jpg`), but the **original filename** you
+   chose is what the LLM will use to reference the image.
+
+2. **Mention the filenames explicitly in the prompt**. Example:
+
+   ```text
+   Create a 6×3×6 m cubic room centered at the origin.
+   Apply the texture 'wood.jpg' (uploaded as referenceImage) to the floor.
+   Apply the texture 'brick.jpg' (uploaded as finalImage) to the walls.
+   Use type:"room" with metadata.floor_material and metadata.wall_material
+   to assign them. Use pattern_scale 3.0 for the floor and 2.0 for the walls.
+   ```
+
+3. The orchestrator **annotates the prompt** sent to the LLM with the
+   filenames of the uploaded images:
+
+   ```
+   --- Uploaded images (use these filenames verbatim when emitting
+       material.texture_image / normal_image / roughness_image) ---
+     [Uploaded image #1: filename="1787229211108-wood.jpg"]
+     [Uploaded image #2: filename="1787229211108-brick.jpg"]
+   ```
+
+4. The LLM emits `material.texture_image: "wood.jpg"` (the name it
+   parsed from your prompt). The orchestrator's `resolveTextureName()`
+   resolves it to the absolute upload path via the suffix-match
+   strategy (#3 above).
+
+5. Blender receives the absolute path and loads the texture via
+   `bpy.data.images.load()`. Look for `WALLERMAX_TEXTURE_APPLIED` in
+   the logs to confirm.
+
+### Room entities: floor vs wall materials
+
+For `type:"room"` entities, the compiler reads textures from
+`metadata.floor_material` and `metadata.wall_material` (separate
+materials for the floor and the four walls). Both can be either a
+string (treated as `{"texture_image": <string>}`) or a full material
+spec:
+
+```jsonc
+{
+  "id": "room",
+  "type": "room",
+  "geometry": { "dimensions": [6, 6, 3] },
+  "metadata": {
+    "floor_material": {
+      "texture_image": "wood.jpg",
+      "pattern_scale": 3.0,
+      "roughness": 0.6
+    },
+    "wall_material": {
+      "texture_image": "brick.jpg",
+      "pattern_scale": 2.0,
+      "roughness": 0.8
+    },
+    "checker_tile_size": 0.25,
+    "wall_thickness": 0.15
+  }
+}
+```
+
+If `floor_material` or `wall_material` is omitted, the compiler falls
+back to the procedural checker material (floor) and a neutral solid
+color (walls) — same behavior as v1.0.0.
+
+### Defensive string handling
+
+Some text-only LLMs occasionally emit `material` as a bare string
+instead of an object (e.g. `"material": "wood.jpg"` instead of
+`"material": {"texture_image": "wood.jpg"}`). The compiler now coerces
+any string-shaped material spec into `{"texture_image": <string>}` so
+the render never crashes with `AttributeError: 'str' object has no
+attribute 'get'`.
+
+### Limitations
+
+- Only `albedo`, `normal`, and `roughness` maps are supported. Ao and
+  metallic maps are easy to add by following the same pattern.
+- No automatic image resizing — Blender loads the image at its native
+  resolution. For 8K+ textures, consider pre-resizing with Pillow.
+- UVs are not explicitly unwrapped. The compiler relies on the default
+  UVs of `primitive_*_add` operators, which work for `plane` and `box`
+  but may look distorted on complex meshes.
+
+## Camera behaviors
+
+The `behavior` block of an entity (typically a camera) controls its
+animation. v1.0.1 supports the following behavior types:
+
+| Type | Description |
+| --- | --- |
+| `static` | No motion (default). |
+| `look_at` | Camera always points at `target` (TRACK_TO constraint). |
+| `follow` | Same as `look_at` (synonym). |
+| `orbit` | Camera orbits around `target` by `angle` degrees over `duration` seconds. |
+| `dolly_in` | Camera moves forward (toward `look_at` or `target`) by `distance` meters. |
+| `dolly_out` | Camera moves backward (away from `look_at` or `target`) by `distance` meters. |
+| `crane_up` | Camera moves up vertically (world Z) by `distance` meters. |
+| `crane_down` | Camera moves down vertically (world Z) by `distance` meters. |
+| `pan` | Camera rotates `angle` degrees around its Z axis. |
+| `tilt` | Camera rotates `angle` degrees around its X axis. |
+| `custom` | Reserved for future use. |
+
+### v1.0.1 fixes vs v1.0.0
+
+- **`dolly_in`/`dolly_out`** now move along the camera's actual view
+  direction (computed as `look_at - position`), not along world `-Y`.
+  The `TRACK_TO` constraint is preserved during the dolly so the camera
+  keeps framing the target throughout the move.
+- **`pan`/`tilt`** no longer fight with the `TRACK_TO` constraint. The
+  constraint's influence is briefly set to 0 during keyframe insertion
+  and restored afterwards.
+- **`orbit`** disables the `TRACK_TO` constraint before parenting the
+  camera to the orbit pivot, avoiding unpredictable motion.
+- **`behavior.distance`** is now part of the schema (was used by the
+  compiler but not declared).
+- **Room entities** are now registered in `objs` (as a center anchor)
+  so behaviors can target them by id (`target: "room"` works).
+
 ## Configuration
 
 All configuration is read from a `.env` file at the project root (see
@@ -405,10 +613,13 @@ All configuration is read from a `.env` file at the project root (see
 | --- | --- | --- |
 | `PORT` | `4317` | TCP port for the HTTP server |
 | `HOST` | `127.0.0.1` | Bind address (use `0.0.0.0` for LAN, with care) |
-| `LLM_PROVIDER` | `mock` | `mock` / `openai` / `zai` |
+| `LLM_PROVIDER` | `mock` | `mock` / `openai` / `zai` / `deepseek` |
 | `OPENAI_API_KEY` | — | Required when `LLM_PROVIDER=openai` |
 | `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model name |
 | `OPENAI_MODE` | `chat` | `chat` (Chat Completions, JSON-mode) or `responses` (Responses API) |
+| `DEEPSEEK_API_KEY` | — | Required when `LLM_PROVIDER=deepseek` |
+| `DEEPSEEK_MODEL` | `deepseek-chat` | DeepSeek model name |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com/v1` | Override for self-hosted |
 | `ZAI_API_KEY` | — | Optional outside the Z.ai sandbox |
 | `BLENDER_BIN` | `blender` | Path to the Blender executable |
 | `SKIP_BLENDER` | `0` | `1` to never invoke Blender (World Model only) |
@@ -462,6 +673,21 @@ SSE) until `status` is `done`. Then download the MP4 from
 The job's `renderEngine` field tells you whether Blender (`"blender"`)
 or the fallback (`"fallback"`) was used.
 
+### Example: submit a pipeline with DeepSeek + textures (text-only LLM)
+
+```bash
+curl -X POST http://127.0.0.1:4317/api/pipeline \
+  -F "prompt=Create a 6x3x6 m room centered at origin. Apply 'wood.jpg' (referenceImage) to the floor via metadata.floor_material. Apply 'brick.jpg' (finalImage) to the walls via metadata.wall_material. pattern_scale 3.0 floor, 2.0 walls. Camera at [0,-8,3] look_at [0,0,1.5] orbit 90 deg around origin over 3s." \
+  -F "referenceImage=@wood.jpg" \
+  -F "finalImage=@brick.jpg" \
+  -F "width=1280" -F "height=720" -F "fps=24" -F "duration=3" \
+  -F "provider=deepseek"
+```
+
+The LLM does not see the images, but the orchestrator annotates the
+prompt with their filenames so the LLM can emit `texture_image` fields
+that the resolver maps to the absolute upload paths.
+
 ## CLI
 
 The CLI (`npm run cli`) is the TypeScript equivalent of v2/v3's
@@ -470,7 +696,7 @@ as the web server, just without the HTTP layer.
 
 ```bash
 npm run cli -- --prompt <file> [--image <file>] [--final <file>]
-                       [--provider mock|openai|zai] [--model <name>]
+                       [--provider mock|openai|zai|deepseek] [--model <name>]
                        [--skip-blender] [--out <dir>]
                        [--width 1280] [--height 720] [--fps 30] [--duration 10]
                        [--engine BLENDER_EEVEE_NEXT|CYCLES] [--samples 64]
@@ -488,6 +714,10 @@ npm run cli -- --prompt prompts/example.txt --provider mock
 # Full pipeline with OpenAI + reference + final image:
 npm run cli -- --prompt prompts/example.txt --provider openai \
   --image reference.png --final target.jpg
+
+# Textures with DeepSeek (text-only LLM):
+npm run cli -- --prompt prompts/textures_example.txt --provider deepseek \
+  --image wood.jpg --final brick.jpg
 ```
 
 ## Web UI
@@ -502,7 +732,7 @@ no Next.js, no bundler).
 - **Reference image** dropzone (optional).
 - **Final image** dropzone (optional).
 - **Render settings**: width, height, fps, duration, engine, samples.
-- **LLM provider** dropdown: `mock` / `openai` / `zai`.
+- **LLM provider** dropdown: `mock` / `openai` / `zai` / `deepseek`.
 - **Skip Blender** checkbox.
 - **Advanced**: model override, extra system prompt.
 - Two action buttons: **Run pipeline** and **Analyze final image**.
@@ -522,19 +752,37 @@ no Next.js, no bundler).
 
 ## Examples
 
-The `prompts/` directory contains three example prompts:
+The `prompts/` directory contains four example prompts:
 
 | File | Description |
 | --- | --- |
 | `prompts/example.txt` | The v2 text-only example: a red ball bouncing in a checkerboard room. |
 | `prompts/reconstruction_example.txt` | The v3 image + prompt example: reconstruct a room from a reference image. |
 | `prompts/cinematic_dusk.txt` | A cinematic look-dev example with warm-cool lighting and shallow DoF. |
+| `prompts/textures_example.txt` | **NEW v1.0.1**: PBR textures with a text-only LLM (DeepSeek). |
 
 To run any of them from the CLI:
 
 ```bash
 npm run cli -- --prompt prompts/cinematic_dusk.txt --provider mock
 ```
+
+### textures_example.txt (NEW v1.0.1)
+
+A complete example that uses uploaded images as PBR textures with a
+text-only LLM. Requires two image files (`wood.jpg` and `brick.jpg`)
+placed next to the prompt. Run with:
+
+```bash
+npm run cli -- --prompt prompts/textures_example.txt --provider deepseek \
+  --image wood.jpg --final brick.jpg
+```
+
+The prompt explicitly mentions the filenames so the LLM can emit
+`texture_image: "wood.jpg"` and `texture_image: "brick.jpg"` without
+needing to see the image pixels. The orchestrator's resolver then maps
+those names to the absolute upload paths on disk before passing the
+World Model to Blender.
 
 ## Troubleshooting
 
@@ -555,7 +803,8 @@ You set `LLM_PROVIDER=openai` but did not provide an API key. Either:
 
 - Set `OPENAI_API_KEY` in `.env`, or
 - Switch to `LLM_PROVIDER=mock` (no key needed), or
-- Switch to `LLM_PROVIDER=zai` (works inside the Z.ai sandbox).
+- Switch to `LLM_PROVIDER=zai` (works inside the Z.ai sandbox), or
+- Switch to `LLM_PROVIDER=deepseek` and set `DEEPSEEK_API_KEY`.
 
 ### "Fallback renderer exited with code N"
 
@@ -571,23 +820,145 @@ The fallback renderer failed. Check that:
   ffmpeg -version
   ```
 
-### The MP4 plays but the colors look flat / weird
+### "WALLERMAX_TEXTURE_RESOLVE_FAIL: 'wood.jpg' not found"
+
+The LLM emitted a texture filename that does not match any uploaded
+image. Causes:
+
+- The user mentioned `"wood.png"` in the prompt but uploaded `wood.jpg`
+  (or vice versa). Make sure the filename in the prompt matches the
+  actual upload extension.
+- The user uploaded only one image but the prompt mentions two. Upload
+  both images, or remove the second reference from the prompt.
+- The upload was lost (rare — check that `.wallermax/_uploads/` contains
+  the file with the timestamp-prefixed name).
+
+Workaround: have the LLM emit the absolute path to the upload
+(`D:\...\_uploads\1787229211108-wood.jpg`) instead of the bare filename.
+The resolver passes absolute paths through unchanged.
+
+### "WALLERMAX_TEXTURE_LOAD_FAIL: ... — Cannot read '...': No such file"
+
+Blender could not open the texture file. The path was resolved but the
+file does not exist at that path. Check:
+
+- The file exists at the path shown in the error message.
+- The Blender process has read permissions on that file.
+- On Windows, the path uses backslashes consistently. The compiler
+  normalizes paths internally, but if you manually set `texture_image`
+  to an absolute path, use the OS-native separator.
+
+### "AttributeError: 'str' object has no attribute 'get'"
+
+This was a v1.0.0 bug that occurred when a text-only LLM emitted
+`"material": "wood.jpg"` (string) instead of `"material": {"texture_image": "wood.jpg"}` (object).
+**Fixed in v1.0.1** — the compiler now coerces any string-shaped
+material spec to `{"texture_image": <string>}` automatically.
+
+### "The MP4 plays but the colors look flat / weird"
 
 This is expected when the fallback renderer is used — it produces a
 schematic top-down preview, not a photorealistic render. Install Blender
 to get the full PBR render.
 
-### The job's `renderEngine` field is `undefined`
+If Blender IS being used but colors still look flat, check the World
+Model's `aesthetic` block — the LLM may have set `mood: "melancholic"`,
+`exposure_ev: -0.5` or a very dark `ambient_color`. Adjust the prompt
+to ask for brighter lighting (e.g. `mood: bright`, `ambient_color:
+[0.5, 0.5, 0.5]`, `exposure_ev: 0`).
+
+### "Camera doesn't orbit, even though I specified behavior.type='orbit'"
+
+Common causes:
+
+- The `behavior.target` references an entity that is not registered in
+  `objs` (e.g. a `room` in v1.0.0 — **fixed in v1.0.1**, the room is
+  now registered as a center anchor).
+- The `target` field is missing or points to a non-existent entity id.
+- The `behavior.duration` is 0 or negative.
+
+Check the logs for a `WALLERMAX_BEHAVIOR_ORBIT` line — if it is
+missing, `apply_behavior` returned early because `target is None`.
+
+### "The job's `renderEngine` field is `undefined`"
 
 The job has not reached the render stage yet. Wait until `status` is
 `done`. Once it is, `renderEngine` will be either `"blender"` or
 `"fallback"`.
 
-### I want to force the fallback renderer even though Blender is installed
+### "I want to force the fallback renderer even though Blender is installed"
 
 Set `SKIP_BLENDER=1` to skip rendering entirely (World Model only), or
 toggle the "Skip Blender" checkbox in the web UI. There is currently no
 "force fallback" option — if Blender is installed, it will be used.
+
+## Changelog
+
+### v1.0.1 — PBR textures + camera fixes
+
+**New features:**
+
+- **PBR image textures** — `material.texture_image`,
+  `material.normal_image`, `material.roughness_image` are now loaded
+  by `make_material()` in `python/build_scene.py`. Color spaces are set
+  correctly (sRGB for albedo, Non-Color for normal/roughness). Tiling
+  via `pattern_scale` is supported.
+- **Room materials** — `metadata.floor_material` and
+  `metadata.wall_material` let you assign different textures to the
+  floor and the four walls of a `type:"room"` entity.
+- **DeepSeek provider** — text-only LLM support via the OpenAI-compatible
+  DeepSeek API. Calls 1 and 2 (reconstruction, final-image analysis) are
+  skipped automatically when DeepSeek is the provider.
+- **Texture name resolution** — the TypeScript orchestrator resolves
+  LLM-emitted texture filenames to absolute upload paths via a 5-strategy
+  resolver (exact, basename, suffix, case-insensitive suffix, absolute).
+- **Image filename annotation** — the LLM prompt is augmented with
+  `[Uploaded image #1: filename="..."]` lines so text-only LLMs can
+  reference uploaded files by name.
+
+**Bug fixes:**
+
+- `dolly_in`/`dolly_out` now move along the camera's view direction
+  (computed from `look_at - position`), not along world `-Y`.
+- `pan`/`tilt` no longer fight with the `TRACK_TO` constraint.
+- `orbit` disables `TRACK_TO` before parenting the camera to the pivot.
+- `behavior.distance` is now part of the JSON schema (was used by the
+  compiler but not declared).
+- The `behavior.type` enum is aligned across the schema, TypeScript
+  types, and the Python compiler (`dolly_in`/`out`, `crane_up`/`down`
+  instead of the generic `dolly`/`crane`).
+- `compile_world()` now registers the `room` entity in `objs` (as a
+  center anchor empty), so behaviors can target a room by id.
+- `make_material()` is now defensive — a string-shaped material spec
+  (e.g. `"material": "wood.jpg"`) is coerced to
+  `{"texture_image": <string>}` instead of crashing with
+  `AttributeError: 'str' object has no attribute 'get'`.
+- Fixed a bug in `scene.ts` where the final-image analysis call was
+  missing the `prompt:` key (the object literal started with a string
+  instead of `prompt: "..."`).
+
+**Updated files:**
+
+- `python/build_scene.py` — PBR texture support in `make_material`,
+  defensive string handling, `build_room` respects `metadata.floor_material`
+  / `metadata.wall_material`, `apply_behavior` fixes (dolly local space,
+  pan/tilt TRACK_TO, orbit TRACK_TO), `resolve_texture_path` helper,
+  `_CURRENT_UPLOAD_DIR` hook in `compile_world`, room registered in `objs`.
+- `server/src/analyzers/scene.ts` — `resolveTextureName()` with 5-strategy
+  resolution, `resolveMaterialSpec()` helper, metadata floor/wall
+  resolution, missing-`prompt:` bugfix.
+- `server/src/llm/openai.ts` — image filename annotation in the prompt.
+- `server/src/llm/zai.ts` — image filename annotation in the prompt.
+- `server/src/llm/prompts.ts` — `SCENE_COMPILER_SYSTEM_PROMPT` updated
+  with PBR texture guidance and multi-shot camera animation guidance.
+- `schemas/world_model.schema.json` — clarified texture_image /
+  normal_image / roughness_image descriptions, added `normal_strength`,
+  aligned `behavior.type` enum, added `behavior.distance`.
+
+### v1.0.0 — Initial release
+
+Original Wallermax H1 prototype. See the project layout above for the
+file structure and the three analyzers section for the LLM call flow.
 
 ## License
 
