@@ -9,8 +9,19 @@ import { runPipeline } from "../pipeline.js";
 import { analyzeFinalImage } from "../analyzers/finalImage.js";
 import { probeAllPythons } from "../renderer.js";
 import { parseMultipart } from "./multipart.js";
+import { listAtlases, getAtlasImage } from "./atlases.js";
 import { mimeFromExt, readBodyAsString, safeJoin, sendJson } from "../util.js";
-import type { PipelineRequest, JobProgress } from "../types.js";
+import type { PipelineRequest, JobProgress, UserAtlas } from "../types.js";
+
+
+function safeParseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    console.warn(`[handlers] could not parse JSON field: ${err}`);
+    return undefined;
+  }
+}
 
 // ── GET /api/health ────────────────────────────────────────────────────
 export function getHealth(_req: IncomingMessage, res: ServerResponse): void {
@@ -269,7 +280,7 @@ export async function postPipeline(req: IncomingMessage, res: ServerResponse): P
     systemPromptExtra: form.fields.systemPromptExtra,
     provider: ((form.fields.provider as "openai" | "zai" | "mock" | "deepseek") || config.provider),
     model: form.fields.model || undefined,
-    referenceImage: form.files.referenceImage
+    userAtlas: form.fields.userAtlas ? safeParseJson(form.fields.userAtlas) as UserAtlas | undefined : undefined,    referenceImage: form.files.referenceImage
       ? {
           name: form.files.referenceImage.name,
           path: form.files.referenceImage.path,
@@ -388,4 +399,17 @@ function serveFile(res: ServerResponse, filePath: string): void {
     "Content-Length": stat.size,
   });
   createReadStream(filePath).pipe(res);
+}
+
+// ── Atlas route wrappers (v1.1.0) ─────────────────────────────────────
+export async function listAtlasesRoute(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  await listAtlases(res);
+}
+
+export async function getAtlasImageRoute(
+  req: IncomingMessage,
+  res: ServerResponse,
+  name: string,
+): Promise<void> {
+  await getAtlasImage(res, name);
 }

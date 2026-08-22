@@ -119,9 +119,32 @@ export async function analyzeScene(req: PipelineRequest): Promise<AnalysisBundle
   const uploads: Array<{ name: string; path: string }> = [];
   if (req.referenceImage) uploads.push({ name: req.referenceImage.name, path: req.referenceImage.path });
   if (req.finalImage) uploads.push({ name: req.finalImage.name, path: req.finalImage.path });
+  const userAtlas = req.userAtlas;
 
   function resolveTextureName(name: unknown): string | undefined {
     if (typeof name !== "string" || !name) return undefined;
+    // Check for atlas_user:R,C reference (user-composed texture atlas)
+    if (name.startsWith("atlas_user:")) {
+      const match = name.match(/^atlas_user:(\d+),(\d+)$/);
+      if (match) {
+        const destRow = parseInt(match[1] as string, 10);
+        const destCol = parseInt(match[2] as string, 10);
+        if (userAtlas) {
+          const tile = userAtlas.tiles.find(
+            t => t.dest_row === destRow && t.dest_col === destCol
+          );
+          if (tile) {
+            const resolved = `atlas:${tile.source_atlas}:${tile.source_row},${tile.source_col}`;
+            console.log(`[scene] resolved atlas_user:${destRow},${destCol} → ${resolved}`);
+            return resolved;
+          }
+          console.warn(`[scene] atlas_user:${destRow},${destCol} not found in user atlas`);
+          return undefined;
+        }
+        console.warn(`[scene] atlas_user:${destRow},${destCol} referenced but no user atlas provided`);
+        return undefined;
+      }
+    }
     // Already absolute path or URL — leave as is
     if (name.startsWith("/") || name.startsWith("http") || /^[A-Za-z]:[\\/]/.test(name)) return name;
     // Strategy 1+2: exact match or basename match

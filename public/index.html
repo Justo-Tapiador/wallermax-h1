@@ -20,6 +20,7 @@
         <a href="https://github.com/" target="_blank" rel="noopener" class="ghost-btn">Docs</a>
         <button id="btn-health" class="ghost-btn">Health</button>
         <button id="btn-python-check" class="ghost-btn">Python check</button>
+        <button id="btn-atlas" class="ghost-btn" title="Build a custom texture atlas">🗺️ Atlas</button>
         <span id="provider-badge" class="provider-badge">provider: …</span>
       </nav>
     </header>
@@ -115,6 +116,7 @@
           <input type="checkbox" id="skipBlender" />
           <label for="skipBlender">Skip Blender (produce World Model only)</label>
         </div>
+        <input type="hidden" id="userAtlasJson" name="userAtlas" value="" />
 
         <div class="actions">
           <button id="btn-run" class="primary-btn">Run pipeline</button>
@@ -196,5 +198,81 @@
     </footer>
 
     <script src="/static/app.js" defer></script>
+
+    <!-- ─────────────── Texture Atlas Builder Modal ─────────────── -->
+    <div id="atlas-modal" class="atlas-modal" hidden>
+      <div class="atlas-modal-content">
+        <header class="atlas-modal-header">
+          <h2>Texture Atlas Builder</h2>
+          <button id="btn-atlas-close" class="atlas-close" title="Close">✖</button>
+        </header>
+
+        <div class="atlas-layout">
+          <!-- LEFT: Available atlases -->
+          <div class="atlas-list-panel">
+            <h3>Available Atlases</h3>
+            <div id="atlas-list" class="atlas-list">
+              <p class="atlas-loading">Loading…</p>
+            </div>
+          </div>
+
+          <!-- RIGHT-TOP: Source atlas viewer -->
+          <div class="atlas-source-panel">
+            <h3 id="atlas-source-title">Source Atlas</h3>
+            <p class="atlas-instructions">
+              <strong>Hover</strong> to preview · <strong>Click</strong> to add to your atlas
+            </p>
+            <div class="atlas-viewer-wrap">
+              <div id="atlas-canvas" class="atlas-canvas">
+                <img id="atlas-img" alt="Atlas" hidden />
+                <div id="atlas-grid" class="atlas-grid"></div>
+                <div id="atlas-tooltip" class="atlas-tooltip"></div>
+              </div>
+              <div class="atlas-info-panel">
+                <div class="atlas-info-card">
+                  <div class="atlas-info-label">Hovered tile</div>
+                  <div id="atlas-hovered" class="atlas-info-value">—</div>
+                </div>
+                <div class="atlas-info-card">
+                  <div class="atlas-info-label">Tile size</div>
+                  <div id="atlas-tile-size" class="atlas-info-value">102×102 px</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- RIGHT-BOTTOM: User's custom atlas -->
+          <div class="atlas-user-panel">
+            <h3>Your Custom Atlas</h3>
+            <div class="atlas-user-wrap">
+              <div id="atlas-user-grid" class="atlas-user-grid"></div>
+              <div class="atlas-user-controls">
+                <div class="atlas-stats">
+                  <div class="atlas-stat-row">
+                    <span>Tiles used</span>
+                    <span id="atlas-tile-count" class="atlas-stat-value">0</span>
+                  </div>
+                  <div class="atlas-stat-row">
+                    <span>Capacity</span>
+                    <span class="atlas-stat-value">100</span>
+                  </div>
+                  <div class="atlas-stat-row">
+                    <span>Next slot</span>
+                    <span id="atlas-next-slot" class="atlas-stat-value">—</span>
+                  </div>
+                </div>
+                <div class="atlas-selected-list-wrap">
+                  <div class="atlas-info-label">Selected tiles</div>
+                  <div id="atlas-selected-list" class="atlas-selected-list"></div>
+                </div>
+                <button id="btn-atlas-clear" class="ghost-btn atlas-btn-danger">Clear all</button>
+                <button id="btn-atlas-done" class="primary-btn">Done</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </body>
 </html>

@@ -143,6 +143,22 @@ export interface WorldModel {
 }
 
 // ── Pipeline request (matches the multipart form posted by the web UI) ──
+export interface UserAtlasTile {
+  dest_row: number;
+  dest_col: number;
+  source_atlas: string;
+  source_row: number;
+  source_col: number;
+}
+
+export interface UserAtlas {
+  version: string;
+  grid_cols: number;
+  grid_rows: number;
+  tile_size: number;
+  tiles: UserAtlasTile[];
+}
+
 export interface PipelineRequest {
   prompt: string;
   systemPromptExtra?: string;
@@ -150,6 +166,7 @@ export interface PipelineRequest {
   model?: string;
   referenceImage?: { name: string; path: string; mime: string };
   finalImage?: { name: string; path: string; mime: string };
+  userAtlas?: UserAtlas;
   render: {
     width: number;
     height: number;

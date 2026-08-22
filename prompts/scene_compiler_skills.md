@@ -955,3 +955,161 @@ that you know will produce a broken render.
    than a complex scene that renders poorly.
 
 Now emit the World Model JSON.
+
+
+## 11. Texture Atlas (NEW in v1.1.0)
+
+A **texture atlas** is a single PNG image containing a grid of smaller texture
+tiles. Wallermax H1 supports referencing individual tiles by coordinates.
+
+### 11.1 Predefined atlases
+
+The system ships with predefined atlases in `assets/texture_atlas/`:
+
+- `room-1.png` — room interior textures (wood, fabric, wallpaper)
+- `room-2.png` — room interior textures (stone, metal, glass)
+- `street-1.png` — street and urban textures (asphalt, concrete, brick)
+- `street-2.png` — street and urban textures (tiles, pavement, gravel)
+
+Each atlas is 1024×1024 px with a 10×10 grid of 102×102 px tiles.
+
+### 11.2 User-composed atlas
+
+The user can compose a **custom atlas** by selecting tiles from the predefined
+atlases via the web UI. The custom atlas is referenced with the prefix
+`atlas_user:`:
+
+```jsonc
+{
+  "material": {
+    "texture_image": "atlas_user:0,0",    // first tile in user's atlas
+    "base_color": [1, 1, 1, 1],
+    "pattern_scale": 1.0
+  }
+}
+```
+
+### 11.3 How to reference tiles
+
+When the user provides a custom atlas, the available tiles are listed in the
+augmented prompt. Use the `atlas_user:ROW,COL` format (0-indexed):
+
+```jsonc
+// Floor with user's first tile
+{ "material": { "texture_image": "atlas_user:0,0", "pattern_scale": 4.0 } }
+
+// Wall with user's second tile
+{ "material": { "texture_image": "atlas_user:0,1", "pattern_scale": 2.0 } }
+
+// Painting with user's third tile
+{ "material": { "texture_image": "atlas_user:0,2", "pattern_scale": 1.0 } }
+```
+
+### 11.4 When to use atlas textures
+
+- ✅ **Use** `atlas_user:R,C` when the user has composed a custom atlas
+- ✅ **Use** `texture_image: "wood.jpg"` when the user uploaded a single image
+- ✅ **Use** `pattern: "checker"` for procedural patterns (no image needed)
+- ❌ **Do NOT** mix `atlas_user:` and `texture_image:` in the same material
+
+### 11.5 Tips
+
+- `pattern_scale` controls tiling: `4.0` = 4×4 repeats across the surface
+- `base_color: [1, 1, 1, 1]` (white) is the multiplier — use white when a
+  texture is applied
+- The atlas tiles are extracted at 102×102 px — they look best on surfaces
+  smaller than 4×4 meters. For larger surfaces, increase `pattern_scale`
+
+
+### 11.6 Tiling guide by object type (CRITICAL for realistic renders)
+
+The `pattern_scale` parameter controls how many times the texture repeats
+(tiles) across the surface. Choosing the right value makes the difference
+between a realistic scene and a "stretched wallpaper" look.
+
+**Scale cheat sheet:**
+
+| Object type                    | Recommended pattern_scale | Reasoning                                   |
+|--------------------------------|---------------------------|---------------------------------------------|
+| **Floor (large room, 6×4m)**  | 4.0 to 8.0                | Floor covers a large area; needs many repeats |
+| **Floor (small room, 3×3m)**   | 3.0 to 4.0                | Smaller area, fewer repeats                  |
+| **Wall (full wall, 6m wide)** | 2.0 to 3.0                | Walls are visible at eye level; too many repeats look noisy |
+| **Wall (small section)**       | 1.0 to 2.0                | Small wall sections need fewer tiles         |
+| **Painting / Picture frame**   | 1.0 (NO tiling)           | The texture IS the painting; tiling would repeat it |
+| **Ceiling**                    | 3.0 to 5.0                | Similar to floor but less visible            |
+| **Bed / Furniture (large)**    | 2.0 to 3.0                | Cover the surface with 2-3 repeats          |
+| **Bed / Furniture (small)**    | 1.0 to 2.0                | Small surfaces need fewer repeats           |
+| **Carpet / Rug**               | 4.0 to 6.0                | Rugs usually have detailed patterns          |
+| **Book cover / Small object**  | 1.0 (NO tiling)           | One instance of the texture covers it       |
+| **Window glass**               | (no texture, use alpha)   | Glass has no tiling                          |
+| **Curtain**                    | 2.0 to 3.0                | Vertical draping needs some repetition       |
+
+**Rules of thumb:**
+
+1. **NEVER use pattern_scale = 1.0 for floors or walls** — that stretches
+   the texture and looks unnatural. Use 2.0 minimum.
+
+2. **ALWAYS use pattern_scale = 1.0 for paintings, photos, or any surface
+   that represents a single image** — tiling a painting would show 4 copies
+   of the same artwork, which is wrong.
+
+3. **For atlas textures specifically**: the atlas tiles are 102×102 px.
+   At pattern_scale = 4.0, each tile occupies ~25cm of real-world surface.
+   That's appropriate for most floor/wall textures.
+
+4. **When in doubt, use more repeats rather than fewer** — too many repeats
+   looks busy but realistic; too few repeats looks stretched and fake.
+
+**Example: Hotel room with atlas textures**
+
+```jsonc
+// Floor: 6x4m room, atlas tile, parquet → many repeats
+"floor_material": {
+  "texture_image": "atlas_user:0,0",
+  "pattern_scale": 6.0,    // 6x6 = 36 tiles across the floor
+  "base_color": [1, 1, 1, 1]
+}
+
+// Walls: smaller area, atlas tile, wallpaper → moderate repeats
+"wall_material": {
+  "texture_image": "atlas_user:0,1",
+  "pattern_scale": 3.0,    // 3x3 = 9 tiles per wall section
+  "base_color": [1, 1, 1, 1]
+}
+
+// Painting: single image, atlas tile → NO tiling
+{
+  "id": "painting1",
+  "type": "plane",
+  "material": {
+    "texture_image": "atlas_user:0,2",
+    "pattern_scale": 1.0,  // Single tile, no repeat
+    "base_color": [1, 1, 1, 1]
+  }
+}
+
+// Carpet: large surface area, atlas tile → many repeats
+{
+  "id": "carpet",
+  "type": "plane",
+  "geometry": { "dimensions": [3, 2] },
+  "material": {
+    "texture_image": "atlas_user:1,0",
+    "pattern_scale": 5.0,   // 5x5 = 25 tiles across the carpet
+    "base_color": [1, 1, 1, 1]
+  }
+}
+```
+
+### 11.7 Quality checklist for texture atlas scenes
+
+Before emitting a World Model that uses atlas textures, verify:
+
+- [ ] Floor materials have `pattern_scale >= 3.0`
+- [ ] Wall materials have `pattern_scale >= 2.0`
+- [ ] Paintings / picture frames have `pattern_scale = 1.0`
+- [ ] All `texture_image` references use the `atlas_user:R,C` format
+- [ ] All referenced tiles exist in the user's atlas (provided in the prompt)
+- [ ] `base_color` is `[1, 1, 1, 1]` (white multiplier) for textured surfaces
+- [ ] No `texture_image` references to filenames (e.g. "wood.jpg") when using atlas
+

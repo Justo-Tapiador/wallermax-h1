@@ -222,7 +222,9 @@ Be physically plausible. If some information is not observable or explicitly spe
     if (el.systemPromptExtra.value.trim()) fd.append("systemPromptExtra", el.systemPromptExtra.value.trim());
     if (el.refInput.files && el.refInput.files[0]) fd.append("referenceImage", el.refInput.files[0]);
     if (el.finalInput.files && el.finalInput.files[0]) fd.append("finalImage", el.finalInput.files[0]);
-
+    // Atlas (v1.1.0) — send userAtlas JSON if present
+    const _userAtlasJson = document.getElementById("userAtlasJson")?.value;
+    if (_userAtlasJson) fd.append("userAtlas", _userAtlasJson);
     try {
       const r = await fetch("/api/pipeline", { method: "POST", body: fd });
       const j = await r.json();
@@ -543,3 +545,282 @@ Be physically plausible. If some information is not observable or explicitly spe
 
   document.addEventListener("DOMContentLoaded", init);
 })();
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Texture Atlas Builder (v1.1.0)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ATLAS_GRID_SIZE = 10;
+const ATLAS_TILE_PX = 102;
+let atlasState = {
+  availableAtlases: [],
+  currentAtlas: null,
+  userAtlas: {},  // { "row,col": { source_atlas, source_row, source_col } }
+};
+
+// ── Open/close modal ─────────────────────────────────────────────────────────
+const btnAtlas = document.getElementById("btn-atlas");
+const atlasModal = document.getElementById("atlas-modal");
+const btnAtlasClose = document.getElementById("btn-atlas-close");
+
+if (btnAtlas) btnAtlas.addEventListener("click", () => {
+  atlasModal.hidden = false;
+  if (atlasState.availableAtlases.length === 0) {
+    loadAtlasList();
+  }
+});
+if (btnAtlasClose) btnAtlasClose.addEventListener("click", () => {
+  atlasModal.hidden = true;
+});
+
+// ── Load atlas list from /api/atlases ────────────────────────────────────────
+async function loadAtlasList() {
+  const listEl = document.getElementById("atlas-list");
+  listEl.innerHTML = '<p class="atlas-loading">Loading…</p>';
+  try {
+    const res = await fetch("/api/atlases");
+    const data = await res.json();
+    atlasState.availableAtlases = data.atlases || [];
+    renderAtlasList();
+    if (atlasState.availableAtlases.length > 0) {
+      selectAtlas(atlasState.availableAtlases[0].name);
+    }
+  } catch (err) {
+    listEl.innerHTML = `<p class="atlas-loading">Failed to load: ${err.message}</p>`;
+  }
+}
+
+function renderAtlasList() {
+  const listEl = document.getElementById("atlas-list");
+  listEl.innerHTML = "";
+  atlasState.availableAtlases.forEach(atlas => {
+    const item = document.createElement("div");
+    item.className = "atlas-item";
+    item.dataset.name = atlas.name;
+    item.innerHTML = `
+      <div class="atlas-thumb" style="background-image: url('/api/atlases/${atlas.name}/image');"></div>
+      <div class="atlas-info">
+        <div class="atlas-name">${atlas.name}</div>
+        <div class="atlas-meta">${atlas.tile_count} tiles</div>
+      </div>
+    `;
+    item.addEventListener("click", () => selectAtlas(atlas.name));
+    listEl.appendChild(item);
+  });
+}
+
+function selectAtlas(name) {
+  atlasState.currentAtlas = name;
+  // Update active state in list
+  document.querySelectorAll(".atlas-item").forEach(el => {
+    el.classList.toggle("active", el.dataset.name === name);
+  });
+  // Update source title
+  document.getElementById("atlas-source-title").textContent = `Source Atlas — ${name}`;
+  // Load image
+  const img = document.getElementById("atlas-img");
+  img.src = `/api/atlases/${name}/image`;
+  img.hidden = false;
+  // Build grid overlay
+  buildAtlasGrid();
+}
+
+function buildAtlasGrid() {
+  const grid = document.getElementById("atlas-grid");
+  grid.innerHTML = "";
+  const cellSize = 40; // 400 / 10
+  for (let row = 0; row < ATLAS_GRID_SIZE; row++) {
+    for (let col = 0; col < ATLAS_GRID_SIZE; col++) {
+      const cell = document.createElement("div");
+      cell.className = "atlas-grid-cell";
+      cell.style.left = `${col * cellSize}px`;
+      cell.style.top = `${row * cellSize}px`;
+      cell.style.width = `${cellSize}px`;
+      cell.style.height = `${cellSize}px`;
+      cell.dataset.row = row;
+      cell.dataset.col = col;
+      grid.appendChild(cell);
+    }
+  }
+}
+
+// ── Hover on source atlas ────────────────────────────────────────────────────
+const atlasCanvas = document.getElementById("atlas-canvas");
+const atlasTooltip = document.getElementById("atlas-tooltip");
+const atlasHovered = document.getElementById("atlas-hovered");
+
+if (atlasCanvas) atlasCanvas.addEventListener("mousemove", (e) => {
+  const rect = atlasCanvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const cellSize = rect.width / ATLAS_GRID_SIZE;
+  const col = Math.floor(x / cellSize);
+  const row = Math.floor(y / cellSize);
+  if (col < 0 || col >= ATLAS_GRID_SIZE || row < 0 || row >= ATLAS_GRID_SIZE) return;
+
+  // Highlight cell
+  document.querySelectorAll(".atlas-grid-cell.hover").forEach(c => c.classList.remove("hover"));
+  const grid = document.getElementById("atlas-grid");
+  const hoveredCell = grid.children[row * ATLAS_GRID_SIZE + col];
+  if (hoveredCell) hoveredCell.classList.add("hover");
+
+  // Tooltip
+  atlasTooltip.style.left = `${x + 12}px`;
+  atlasTooltip.style.top = `${y - 30}px`;
+  atlasTooltip.textContent = `${atlasState.currentAtlas}:${row},${col}`;
+  atlasTooltip.classList.add("show");
+
+  atlasHovered.textContent = `${atlasState.currentAtlas}:${row},${col}`;
+});
+
+if (atlasCanvas) atlasCanvas.addEventListener("mouseleave", () => {
+  document.querySelectorAll(".atlas-grid-cell.hover").forEach(c => c.classList.remove("hover"));
+  atlasTooltip.classList.remove("show");
+  atlasHovered.textContent = "—";
+});
+
+// ── Click to add tile to user atlas ──────────────────────────────────────────
+if (atlasCanvas) atlasCanvas.addEventListener("click", (e) => {
+  const rect = atlasCanvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const cellSize = rect.width / ATLAS_GRID_SIZE;
+  const col = Math.floor(x / cellSize);
+  const row = Math.floor(y / cellSize);
+  if (col < 0 || col >= ATLAS_GRID_SIZE || row < 0 || row >= ATLAS_GRID_SIZE) return;
+
+  const nextSlot = getNextUserSlot();
+  if (!nextSlot) {
+    alert("User atlas is full (100/100 tiles). Remove some tiles first.");
+    return;
+  }
+  const [uRow, uCol] = nextSlot.split(",").map(Number);
+  atlasState.userAtlas[nextSlot] = {
+    source_atlas: atlasState.currentAtlas,
+    source_row: row,
+    source_col: col,
+  };
+  // Add background-image to the user cell
+  const userGrid = document.getElementById("atlas-user-grid");
+  const cell = userGrid.children[uRow * ATLAS_GRID_SIZE + uCol];
+  if (cell) {
+    cell.classList.add("filled");
+    cell.style.backgroundImage = `url('/api/atlases/${atlasState.currentAtlas}/image')`;
+    cell.style.backgroundPosition = `-${col * 32}px -${row * 32}px`;
+    cell.style.backgroundSize = "320px 320px";
+    cell.dataset.coord = nextSlot;
+  }
+  updateUserStats();
+  updateSelectedList();
+});
+
+function getNextUserSlot() {
+  for (let row = 0; row < ATLAS_GRID_SIZE; row++) {
+    for (let col = 0; col < ATLAS_GRID_SIZE; col++) {
+      if (!atlasState.userAtlas[`${row},${col}`]) return `${row},${col}`;
+    }
+  }
+  return null;
+}
+
+// ── Build user grid (10x10) ──────────────────────────────────────────────────
+function buildUserGrid() {
+  const grid = document.getElementById("atlas-user-grid");
+  grid.innerHTML = "";
+  for (let row = 0; row < ATLAS_GRID_SIZE; row++) {
+    for (let col = 0; col < ATLAS_GRID_SIZE; col++) {
+      const cell = document.createElement("div");
+      cell.className = "atlas-user-cell";
+      cell.dataset.coord = `${row},${col}`;
+      cell.addEventListener("click", () => removeUserTile(row, col));
+      grid.appendChild(cell);
+    }
+  }
+}
+
+function removeUserTile(row, col) {
+  const key = `${row},${col}`;
+  if (!atlasState.userAtlas[key]) return;
+  delete atlasState.userAtlas[key];
+  const grid = document.getElementById("atlas-user-grid");
+  const cell = grid.children[row * ATLAS_GRID_SIZE + col];
+  if (cell) {
+    cell.classList.remove("filled");
+    cell.style.backgroundImage = "";
+  }
+  updateUserStats();
+  updateSelectedList();
+}
+
+function updateUserStats() {
+  const count = Object.keys(atlasState.userAtlas).length;
+  document.getElementById("atlas-tile-count").textContent = count;
+  const next = getNextUserSlot();
+  document.getElementById("atlas-next-slot").textContent = next ? `atlas_user:${next}` : "FULL";
+}
+
+function updateSelectedList() {
+  const list = document.getElementById("atlas-selected-list");
+  list.innerHTML = "";
+  Object.entries(atlasState.userAtlas).forEach(([coord, info]) => {
+    const item = document.createElement("div");
+    item.className = "atlas-selected-item";
+    item.innerHTML = `
+      <span class="atlas-selected-coord">${coord}</span>
+      <span class="atlas-selected-source">← ${info.source_atlas}:${info.source_row},${info.source_col}</span>
+      <span class="atlas-selected-remove" title="Remove">×</span>
+    `;
+    item.querySelector(".atlas-selected-remove").addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const [r, c] = coord.split(",").map(Number);
+      removeUserTile(r, c);
+    });
+    list.appendChild(item);
+  });
+}
+
+// ── Clear all ────────────────────────────────────────────────────────────────
+document.getElementById("btn-atlas-clear")?.addEventListener("click", () => {
+  if (!confirm("Clear all tiles from your custom atlas?")) return;
+  Object.keys(atlasState.userAtlas).forEach(key => {
+    const [r, c] = key.split(",").map(Number);
+    removeUserTile(r, c);
+  });
+});
+
+// ── Done button — serialize and store ───────────────────────────────────────
+document.getElementById("btn-atlas-done")?.addEventListener("click", () => {
+  const count = Object.keys(atlasState.userAtlas).length;
+  if (count === 0) {
+    alert("Your atlas is empty. Add at least 1 tile before continuing.");
+    return;
+  }
+  // Serialize to JSON
+  const tiles = Object.entries(atlasState.userAtlas).map(([coord, info]) => {
+    const [dest_row, dest_col] = coord.split(",").map(Number);
+    return {
+      dest_row,
+      dest_col,
+      source_atlas: info.source_atlas,
+      source_row: info.source_row,
+      source_col: info.source_col,
+    };
+  });
+  const userAtlasJson = JSON.stringify({
+    version: "1.0",
+    grid_cols: ATLAS_GRID_SIZE,
+    grid_rows: ATLAS_GRID_SIZE,
+    tile_size: ATLAS_TILE_PX,
+    tiles,
+  });
+  // Store in hidden input
+  document.getElementById("userAtlasJson").value = userAtlasJson;
+  // Close modal
+  atlasModal.hidden = true;
+  console.log(`[atlas] userAtlas serialized with ${count} tiles`);
+});
+
+// Initialize user grid on page load
+buildUserGrid();
+

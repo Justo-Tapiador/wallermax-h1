@@ -1,60 +1,24 @@
-Crea una habitación de hotel de 6×4×3 metros, centrada en el origen [0,0,0].
-
-ILUMINACIÓN BRILLANTE (CRÍTICO — no uses melancholic/noir/cyberpunk):
-- ambient_color: [0.5, 0.5, 0.55], ambient_intensity: 1.0
-- mood: "bright"
-- exposure_ev: 0.0
-- style_tags: ["daylight", "natural", "warm"]
-- color_temperature_k: 5500
-
-ROOM (type:"room", centrado en [0,0,0], dimensions [6,4,3]):
-- metadata.floor_material: { base_color: [0.5, 0.35, 0.2], roughness: 0.6 }  (parquet)
-- metadata.wall_material: { base_color: [0.9, 0.88, 0.85], roughness: 0.9 }  (crema)
-- metadata.checker_tile_size: 0.25
-- metadata.wall_thickness: 0.15
-
-CAMA (contra la pared norte, y=+1.5):
-- bed_frame: type:"box", position [0, 1.2, 0.15], dimensions [2.2, 1.7, 0.3], base_color [0.4, 0.3, 0.2]
-- mattress: type:"box", position [0, 1.2, 0.45], dimensions [2.0, 1.5, 0.2], base_color [0.95, 0.95, 0.95]
-- pillow1: type:"box", position [-0.5, 1.7, 0.65], dimensions [0.4, 0.5, 0.1], base_color [0.95, 0.95, 0.95]
-- pillow2: type:"box", position [0.5, 1.7, 0.65], dimensions [0.4, 0.5, 0.1], base_color [0.95, 0.95, 0.95]
-- blanket: type:"plane", position [0, 0.9, 0.56], dimensions [2.0, 0.9], base_color [0.5, 0.4, 0.3]
-- headboard: type:"box", position [0, 1.95, 0.7], dimensions [2.2, 0.1, 1.0], base_color [0.35, 0.22, 0.12]
-
-CUADROS en la pared oeste (x=-3, visibles durante el barrido):
-IMPORTANTE: la rotación correcta para un plano vertical pegado a la pared oeste mirando hacia +X (interior) es [90, 0, 90], NO [90, 90, 0].
-- painting1: type:"plane", position [-2.94, 0, 1.6], rotation [90, 0, 90], dimensions [0.6, 0.4], texture_image "painting1.jpg", base_color [1,1,1,1]
-- painting2: type:"plane", position [-2.94, 1.5, 1.6], rotation [90, 0, 90], dimensions [0.6, 0.4], texture_image "painting2.jpg", base_color [1,1,1,1]
-
-MESITAS Y LÁMPARAS (a ambos lados de la cama):
-- nightstand_left: type:"box", position [-1.3, 1.5, 0.25], dimensions [0.4, 0.4, 0.5], base_color [0.3, 0.2, 0.15]
-- nightstand_right: type:"box", position [1.3, 1.5, 0.25], dimensions [0.4, 0.4, 0.5], base_color [0.3, 0.2, 0.15]
-
-VENTANA en la pared sur (detrás de la cámara, para contraluz):
-- window_glass: type:"plane", position [0, -1.94, 1.5], rotation [90, 0, 0], dimensions [1.5, 1.2], alpha 0.3, ior 1.45, base_color [0.9, 0.95, 1.0]
-
-ILUMINACIÓN (día brillante):
-- SUN light: position [5, -5, 8], rotation [-30, 0, -45], power 8.0, color [1.0, 0.95, 0.85], color_temperature_k 5500
-- POINT light (techo): position [0, 0, 2.9], power 100, color [1.0, 0.95, 0.9], color_temperature_k 4500
-- POINT light (mesita izquierda): position [-1.3, 1.5, 0.7], power 60, color [1.0, 0.85, 0.6], color_temperature_k 3500
-- POINT light (mesita derecha): position [1.3, 1.5, 0.7], power 60, color [1.0, 0.85, 0.6], color_temperature_k 3500
-
-CÁMARA (pared sur, opuesta a la cabecera, altura 1.5m, mirando hacia abajo 20°, barrido pan 45°):
-- position [0, -1.5, 1.5]   (dentro del room, pegado a la pared sur, a 1.5m de altura)
-- rotation [110, 0, 0]        (IMPORTANTE: 110° en X = mira hacia +Y pero 20° hacia abajo, así se ve la cama)
-- lens 35mm, sensor_width 36, projection "perspective"
-- NO uses look_at (usaré rotación explícita para que pan funcione sin conflicto con TRACK_TO)
-- behavior: { type: "pan", angle: 45, duration: 4 }   (barrido de 45° de izquierda a derecha)
-
-INSTRUCCIONES EXPLÍCITAS PARA DEEPSEEK:
-- El room DEBE estar centrado en [0,0,0]
-- La cámara DEBE estar en [0, -1.5, 1.5] (pared sur, dentro del room, altura 1.5m)
-- La rotación inicial de la cámara DEBE ser [110, 0, 0] (mirando hacia +Y con inclinación de 20° hacia abajo, así se ve la cama)
-- behavior.type DEBE ser "pan" (NO "orbit", NO "dolly_in")
-- behavior.angle DEBE ser 45 (barrido de 45°)
-- NO uses look_at en la cámara (entrará en conflicto con pan)
-- La rotación de los cuadros en la pared oeste DEBE ser [90, 0, 90] (NO [90, 90, 0])
-- ambient_color DEBE ser [0.5, 0.5, 0.55] (NO [0.01, 0.01, 0.03])
-- mood DEBE ser "bright" (NO "melancholic")
-- exposure_ev DEBE ser 0.0 (NO -0.5)
-- SUN power DEBE ser >= 8.0 (Cycles)
+D:\github\repositories\wallermax-h1>findstr /N /C:"FormData" /C:"formData" /C:"referenceImage" /C:"finalImage" /C:"userAtlas" /C:"/api/pipeline" "D:\github\repositories\wallermax-h1\public\app.js"
+4: *   - Read form state, build a multipart/form-data POST to /api/pipeline.
+18:    refInput: $("referenceImage"),
+19:    finalInput: $("finalImage"),
+211:    const fd = new FormData();
+223:    if (el.refInput.files && el.refInput.files[0]) fd.append("referenceImage", el.refInput.files[0]);
+224:    if (el.finalInput.files && el.finalInput.files[0]) fd.append("finalImage", el.finalInput.files[0]);
+227:      const r = await fetch("/api/pipeline", { method: "POST", body: fd });
+249:    const fd = new FormData();
+332:    if (p.finalImageAnalysis) el.finalJson.textContent = JSON.stringify(p.finalImageAnalysis, null, 2);
+476:    if (j.finalImageAnalysis) el.finalJson.textContent = JSON.stringify(j.finalImageAnalysis, null, 2);
+557:  userAtlas: {},  // { "row,col": { source_atlas, source_row, source_col } }
+697:  atlasState.userAtlas[nextSlot] = {
+719:      if (!atlasState.userAtlas[`${row},${col}`]) return `${row},${col}`;
+742:  if (!atlasState.userAtlas[key]) return;
+743:  delete atlasState.userAtlas[key];
+755:  const count = Object.keys(atlasState.userAtlas).length;
+764:  Object.entries(atlasState.userAtlas).forEach(([coord, info]) => {
+784:  Object.keys(atlasState.userAtlas).forEach(key => {
+792:  const count = Object.keys(atlasState.userAtlas).length;
+798:  const tiles = Object.entries(atlasState.userAtlas).map(([coord, info]) => {
+808:  const userAtlasJson = JSON.stringify({
+816:  document.getElementById("userAtlasJson").value = userAtlasJson;
+819:  console.log(`[atlas] userAtlas serialized with ${count} tiles`);

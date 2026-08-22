@@ -1,0 +1,50 @@
+{
+  "version": "1.0",
+  "description": "Predefined texture atlases for Wallermax H1. Each atlas is a 1024x1024 PNG with a 10x10 grid of 102x102 px tiles.",
+  "atlases": [
+    {
+      "name": "room-1",
+      "filename": "room-1.png",
+      "description": "Room interior textures (wood, fabric, wallpaper)",
+      "width": 1024,
+      "height": 1024,
+      "grid_cols": 10,
+      "grid_rows": 10,
+      "tile_size": 102,
+      "tile_count": 100
+    },
+    {
+      "name": "room-2",
+      "filename": "room-2.png",
+      "description": "Room interior textures (stone, metal, glass)",
+      "width": 1024,
+      "height": 1024,
+      "grid_cols": 10,
+      "grid_rows": 10,
+      "tile_size": 102,
+      "tile_count": 100
+    },
+    {
+      "name": "street-1",
+      "filename": "street-1.png",
+      "description": "Street and urban textures (asphalt, concrete, brick)",
+      "width": 1024,
+      "height": 1024,
+      "grid_cols": 10,
+      "grid_rows": 10,
+      "tile_size": 102,
+      "tile_count": 100
+    },
+    {
+      "name": "street-2",
+      "filename": "street-2.png",
+      "description": "Street and urban textures (tiles, pavement, gravel)",
+      "width": 1024,
+      "height": 1024,
+      "grid_cols": 10,
+      "grid_rows": 10,
+      "tile_size": 102,
+      "tile_count": 100
+    }
+  ]
+}

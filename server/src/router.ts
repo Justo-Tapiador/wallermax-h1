@@ -16,6 +16,8 @@ import {
   postPipeline,
   postPipelineSync,
   serveStatic,
+  listAtlasesRoute,
+  getAtlasImageRoute,
 } from "./handlers/index.js";
 
 type Handler = (
@@ -61,6 +63,9 @@ function makeRoute(method: string, pattern: string, handler: Handler): Route {
 
 const routes: Route[] = [
   makeRoute("GET", "/api/health", getHealth),
+  // Atlas routes (v1.1.0)
+  makeRoute("GET", "/api/atlases", listAtlasesRoute),
+  makeRoute("GET", "/api/atlases/:name/image", (req, res, params) => getAtlasImageRoute(req, res, params.name as string)),
   makeRoute("GET", "/api/python-check", getPythonCheck),
   makeRoute("GET", "/api/config", getConfig),
   makeRoute("GET", "/api/jobs", listJobs),

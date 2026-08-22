@@ -28,15 +28,16 @@
 6. [The three analyzers](#the-three-analyzers)
 7. [Renderers](#renderers)
 8. [PBR textures (NEW in v1.0.1)](#pbr-textures-new-in-v101)
-9. [Camera behaviors](#camera-behaviors)
-10. [Configuration](#configuration)
-11. [HTTP API](#http-api)
-12. [CLI](#cli)
-13. [Web UI](#web-ui)
-14. [Examples](#examples)
-15. [Troubleshooting](#troubleshooting)
-16. [Changelog](#changelog)
-17. [License](#license)
+9. [Texture Atlas (NEW in v1.1.0)](#texture-atlas-new-in-v110)
+10. [Camera behaviors](#camera-behaviors)
+11. [Configuration](#configuration)
+12. [HTTP API](#http-api)
+13. [CLI](#cli)
+14. [Web UI](#web-ui)
+15. [Examples](#examples)
+16. [Troubleshooting](#troubleshooting)
+17. [Changelog](#changelog)
+18. [License](#license)
 
 ---
 
@@ -568,6 +569,254 @@ attribute 'get'`.
 - UVs are not explicitly unwrapped. The compiler relies on the default
   UVs of `primitive_*_add` operators, which work for `plane` and `box`
   but may look distorted on complex meshes.
+## THE NEW SECTION CONTENT (copy everything below this line)
+
+## Texture Atlas (NEW in v1.1.0)
+
+A **texture atlas** is a single PNG image containing a grid of smaller texture
+tiles. Wallermax H1 lets you compose your own custom atlas by selecting tiles
+from predefined atlases, and then reference them by coordinates in your prompts.
+This is the recommended way to apply textures when using text-only LLMs like
+DeepSeek, since it doesn't require uploading individual image files.
+
+### What's a texture atlas?
+
+A texture atlas is a single PNG (typically 1024×1024 px) divided into a grid
+of smaller tiles (typically 10×10 grid of 102×102 px tiles, so 100 tiles per
+atlas). Instead of uploading 100 separate image files, you upload 1 atlas
+and reference tiles by their `(row, col)` coordinates.
+
+```
+┌────┬────┬────┬────┬────┬────┬────┬────┬────┬────┐
+│0,0 │0,1 │0,2 │0,3 │0,4 │0,5 │0,6 │0,7 │0,8 │0,9 │  ← row 0
+├────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
+│1,0 │1,1 │1,2 │...                              │  ← row 1
+├────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
+│2,0 │2,1 │2,2 │...                              │  ← row 2
+├────┴────┴────┴────┴────┴────┴────┴────┴────┴────┤
+│ ... (more rows) ...                            │
+└────────────────────────────────────────────────┘
+  ↑    ↑    ↑
+  col  col  col
+  0    1    2
+```
+
+### Predefined atlases
+
+Wallermax H1 ships with 4 predefined atlases in `assets/texture_atlas/`:
+
+| Atlas | File | Description |
+|---|---|---|
+| `room-1` | `room-1.png` | Room interior textures (wood, fabric, wallpaper) |
+| `room-2` | `room-2.png` | Room interior textures (stone, metal, glass) |
+| `street-1` | `street-1.png` | Street and urban textures (asphalt, concrete, brick) |
+| `street-2` | `street-2.png` | Street and urban textures (tiles, pavement, gravel) |
+
+Each atlas is 1024×1024 px with a 10×10 grid of 102×102 px tiles (100 tiles total).
+
+### Step-by-step workflow
+
+#### Step 1 — Open the Atlas Builder
+
+In the web UI, click the **🗺️ Atlas** button in the top navigation bar (next to
+"Python check"). A modal opens with 3 zones:
+
+- **Left**: list of available atlases (room-1, room-2, street-1, street-2)
+- **Top-right**: large preview of the currently selected source atlas, with a
+  hoverable grid overlay
+- **Bottom-right**: your custom atlas grid (starts empty, 10×10)
+
+#### Step 2 — Browse source tiles
+
+Click an atlas in the left list to load it in the top-right viewer. Hover
+your mouse over the atlas image — you'll see a blue highlight box snapping to
+the tile under your cursor, and a tooltip showing the tile coordinates (e.g.
+`room-1:3,5`).
+
+#### Step 3 — Add tiles to your custom atlas
+
+Click on any tile in the source atlas to add it to your custom atlas. The tile
+will appear in the **first empty slot** of your 10×10 grid (bottom-right),
+labeled with its destination coordinates `atlas_user:ROW,COL`.
+
+- Your atlas starts empty (100 free slots)
+- Each click adds 1 tile
+- Capacity: 100 tiles (one full 10×10 grid)
+- Maximum 1 instance of each source tile (you can't add the same tile twice)
+
+#### Step 4 — Remove tiles from your custom atlas
+
+Click on any filled tile in your custom atlas to remove it. The slot becomes
+empty and can be reused.
+
+You can also click **"Clear all"** to empty the entire atlas (with a confirmation
+prompt).
+
+#### Step 5 — Click "Done"
+
+When you're happy with your atlas, click the **Done** button. The atlas is
+serialized to JSON and stored in a hidden form field. The modal closes and you
+return to the main UI.
+
+Your atlas is now ready to be referenced in the prompt as `atlas_user:ROW,COL`.
+
+#### Step 6 — Reference tiles in your prompt
+
+In your prompt, use the `atlas_user:ROW,COL` format to reference specific tiles.
+The LLM will see a list of available tiles (with their coordinates) in the
+augmented prompt and emit `material.texture_image: "atlas_user:0,0"` accordingly.
+
+**Example prompt** (using a 3-tile custom atlas):
+
+```text
+Create a 6×4×3 m cubic room centered at the origin [0,0,0].
+
+Apply the texture 'atlas_user:0,0' (oak wood) to the floor via
+metadata.floor_material with pattern_scale 6.0.
+
+Apply the texture 'atlas_user:0,1' (red brick) to the walls via
+metadata.wall_material with pattern_scale 3.0.
+
+Create a painting as type:"plane" on the west wall at position [-2.90, 0, 1.2]
+with rotation [90, 0, 90], dimensions [0.6, 0.4], and material.texture_image
+"atlas_user:0,2" with pattern_scale 1.0 (no tiling — it's a single painting).
+
+Camera at [0, -1.5, 1.5], rotation [70, 0, 0], lens 24mm, behavior pan
+45° over 4 seconds.
+```
+
+### Tiling guide (CRITICAL for realistic renders)
+
+The `pattern_scale` parameter controls how many times the texture repeats
+(tiles) across the surface. Choosing the right value makes the difference
+between a realistic scene and a "stretched wallpaper" look.
+
+| Object type | Recommended pattern_scale | Why |
+|---|---|---|
+| Floor (large room, 6×4m) | 4.0 to 8.0 | Floor covers a large area; needs many repeats |
+| Floor (small room, 3×3m) | 3.0 to 4.0 | Smaller area, fewer repeats |
+| Wall (full wall, 6m wide) | 2.0 to 3.0 | Walls are visible at eye level; too many repeats look noisy |
+| Painting / Picture frame | **1.0** (NO tiling) | The texture IS the painting; tiling would repeat it |
+| Ceiling | 3.0 to 5.0 | Similar to floor but less visible |
+| Bed / Furniture (large) | 2.0 to 3.0 | Cover the surface with 2-3 repeats |
+| Carpet / Rug | 4.0 to 6.0 | Rugs usually have detailed patterns |
+| Book cover / Small object | **1.0** (NO tiling) | One instance of the texture covers it |
+
+**Rules of thumb:**
+
+1. **NEVER use `pattern_scale = 1.0` for floors or walls** — that stretches
+   the texture and looks unnatural. Use 2.0 minimum.
+2. **ALWAYS use `pattern_scale = 1.0` for paintings, photos, or any surface
+   that represents a single image** — tiling a painting would show 4 copies
+   of the same artwork.
+3. **When in doubt, use more repeats rather than fewer** — too many repeats
+   looks busy but realistic; too few repeats looks stretched and fake.
+
+### When to use atlas textures vs uploaded images
+
+| Use case | Recommended approach |
+|---|---|
+| Text-only LLM (DeepSeek) + many textures | **Atlas** (no image upload needed) |
+| Vision LLM (gpt-4o, zai) + 1-2 specific textures | **Upload images** as referenceImage/finalImage |
+| You have many textures from a texture pack (Poly Haven, etc.) | **Atlas** (convert them to a 10×10 grid) |
+| You need 1 specific painting/photograph in the scene | **Upload image** (clearer for the LLM) |
+
+You can also **combine both approaches** in the same scene:
+- Use atlas textures for floor, walls, ceiling
+- Upload 1 image as `referenceImage` for a specific painting
+
+### API reference
+
+If you're scripting wallermax-h1 (not using the web UI), you can submit the
+atlas JSON as a `userAtlas` field in the multipart form:
+
+```bash
+curl -X POST http://127.0.0.1:4317/api/pipeline \
+  -F "prompt=Create a room with floor atlas_user:0,0 and walls atlas_user:0,1..." \
+  -F 'userAtlas={"version":"1.0","grid_cols":10,"grid_rows":10,"tile_size":102,"tiles":[{"dest_row":0,"dest_col":0,"source_atlas":"room-1","source_row":2,"source_col":0}]}' \
+  -F "provider=deepseek" \
+  -F "width=1280" -F "height=720" -F "fps=24" -F "duration=4"
+```
+
+The `userAtlas` JSON schema:
+
+```jsonc
+{
+  "version": "1.0",
+  "grid_cols": 10,
+  "grid_rows": 10,
+  "tile_size": 102,
+  "tiles": [
+    {
+      "dest_row": 0,        // position in user's atlas (0-indexed, 0-9)
+      "dest_col": 0,
+      "source_atlas": "room-1",  // name of predefined atlas
+      "source_row": 2,            // tile coordinates in source atlas (0-9)
+      "source_col": 0
+    }
+    // ... up to 100 tiles
+  ]
+}
+```
+
+### HTTP endpoints (v1.1.0)
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/atlases` | List all available predefined atlases (JSON metadata) |
+| `GET` | `/api/atlases/:name/image` | Serve the PNG file for a specific atlas |
+
+### How the LLM receives atlas info
+
+When `req.userAtlas` is provided, the LLM's prompt is augmented with the list
+of available tiles (from the skills markdown section 11). The LLM sees:
+
+```
+Texture Atlas (NEW in v1.1.0)
+... (instructions on how to use atlas_user:R,C format) ...
+```
+
+And emits `material.texture_image: "atlas_user:0,0"` in the World Model. The
+TypeScript orchestrator then resolves `atlas_user:0,0` to the source tile
+coordinates (`atlas:room-1:2,0`) and passes that to `build_scene.py`, which
+extracts the 102×102 px tile from `assets/texture_atlas/room-1.png` and
+creates a `bpy.data.images` object with the extracted pixels.
+
+### Adding your own atlases
+
+To add a new predefined atlas:
+
+1. Create a 1024×1024 px PNG file with a 10×10 grid of 102×102 px tiles
+2. Save it to `assets/texture_atlas/my-atlas.png`
+3. Edit `assets/texture_atlas_index.json` and add an entry:
+
+```jsonc
+{
+  "name": "my-atlas",
+  "filename": "my-atlas.png",
+  "description": "My custom texture pack",
+  "width": 1024,
+  "height": 1024,
+  "grid_cols": 10,
+  "grid_rows": 10,
+  "tile_size": 102,
+  "tile_count": 100
+}
+```
+
+4. Restart the server — your atlas will appear in the UI's list automatically
+
+### Limitations
+
+- Only albedo (color) tiles are supported. Normal and roughness maps from
+  atlases are not yet supported (planned for v1.2.0).
+- Atlas tiles are 102×102 px — small details may look pixelated when applied
+  to large surfaces with low `pattern_scale`.
+- The custom atlas is not persisted across sessions. If you refresh the page,
+  you'll need to recompose your atlas (planned for v1.2.0: save/load user
+  atlas as JSON).
+
+---
 
 ## Camera behaviors
 

@@ -1,7 +1,7 @@
 {
   "name": "wallermax-h1",
-  "version": "1.0.1",
-  "description": "Wallermax H1 — Procedural 3D scene compiler. Text + reference image + final image -> semantic World Model -> Blender -> MP4. Native Node.js + TypeScript web server.",
+  "version": "1.1.0",
+  "description": "Wallermax H1 \u2014 Procedural 3D scene compiler. Text + reference image + final image -> semantic World Model -> Blender -> MP4. Native Node.js + TypeScript web server.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -21,7 +21,8 @@
     "docs/",
     "README.md",
     "LICENSE",
-    ".env.example"
+    ".env.example",
+    "assets/"
   ],
   "keywords": [
     "blender",
@@ -41,7 +42,7 @@
     "typescript",
     "cli"
   ],
-  "author": "Justo Tapiador García <justo.tapiador@gmail.com>",
+  "author": "Justo Tapiador Garc\u00eda <justo.tapiador@gmail.com>",
   "contributors": [],
   "homepage": "https://github.com/Justo-Tapiador/wallermax-h1#readme",
   "repository": {

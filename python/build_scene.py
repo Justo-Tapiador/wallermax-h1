@@ -159,6 +159,87 @@ def _get_material_node_tree(mat):
     return None
 
 
+
+
+def _get_assets_dir():
+    """Return the path to assets/texture_atlas/ relative to this script."""
+    return Path(__file__).parent.parent / "assets" / "texture_atlas"
+
+
+def extract_atlas_tile(atlas_name, row, col, tile_size=102):
+    """Extract a single tile from a predefined texture atlas.
+
+    Args:
+      atlas_name: str — name of the atlas (e.g. "room-1")
+      row: int — row index (0-indexed, top to bottom)
+      col: int — column index (0-indexed, left to right)
+      tile_size: int — size of each tile in pixels (default 102 for 1024/10)
+
+    Returns:
+      bpy.types.Image — a new image containing just the extracted tile,
+                        with sRGB color space.
+
+    Raises:
+      FileNotFoundError if the atlas file does not exist.
+      ValueError if the coordinates are out of bounds.
+    """
+    assets_dir = _get_assets_dir()
+    atlas_path = assets_dir / f"{atlas_name}.png"
+    if not atlas_path.exists():
+        raise FileNotFoundError(f"Atlas '{atlas_name}' not found at {atlas_path}")
+
+    # Load the source atlas
+    atlas_img = bpy.data.images.load(str(atlas_path), check_existing=True)
+    atlas_w, atlas_h = atlas_img.size[0], atlas_img.size[1]
+
+    # Validate coordinates
+    x_start = col * tile_size
+    y_start = row * tile_size
+    if x_start + tile_size > atlas_w or y_start + tile_size > atlas_h:
+        raise ValueError(
+            f"Tile ({row},{col}) out of bounds for atlas '{atlas_name}' "
+            f"({atlas_w}x{atlas_h}, tile_size={tile_size})"
+        )
+
+    # Create a new image for the tile
+    tile_img = bpy.data.images.new(
+        f"{atlas_name}_tile_{row}_{col}",
+        width=tile_size,
+        height=tile_size,
+        alpha=True,
+    )
+    tile_img.colorspace_settings.name = "sRGB"
+
+    # Extract pixels from the atlas.
+    # bpy.data.images.pixels is a flat array of RGBA floats (0-1), row by row,
+    # top to bottom.
+    atlas_pixels = list(atlas_img.pixels)
+    tile_pixels = []
+    for y in range(y_start, y_start + tile_size):
+        for x in range(x_start, x_start + tile_size):
+            src_idx = (y * atlas_w + x) * 4
+            tile_pixels.extend(atlas_pixels[src_idx:src_idx + 4])
+
+    # IMPORTANT: Use slice assignment ([:] =) instead of direct assignment.
+    # In Blender 5.x, `image.pixels = list` may NOT propagate to the image
+    # buffer in the viewport. Slice assignment forces the copy.
+    # Also: convert to a tuple to ensure the buffer is updated atomically.
+    tile_img.pixels[:] = tile_pixels
+    # Mark the image as changed so the viewport refreshes
+    try:
+        tile_img.update()
+    except Exception:
+        pass
+    # pack() saves the image to memory so it survives file saves and renders
+    try:
+        tile_img.pack()
+    except Exception as exc:
+        print(f"WALLERMAX_ATLAS_PACK_WARN: '{atlas_name}_tile_{row}_{col}' - {exc}")
+    print(f"WALLERMAX_ATLAS_EXTRACTED: atlas='{atlas_name}' tile=({row},{col}) "
+          f"size={tile_size}x{tile_size}")
+    return tile_img
+
+
 def make_material(name, spec):
     """Build a Principled BSDF material from a Wallermax material block.
 
@@ -238,14 +319,27 @@ def make_material(name, spec):
     # Image-based PBR textures (overrides any procedural pattern above).
     texture_image = spec.get("texture_image")
     if texture_image:
-        upload_dir = _CURRENT_UPLOAD_DIR
-        tex_path = resolve_texture_path(texture_image, upload_dir)
-        try:
-            albedo_img = bpy.data.images.load(tex_path, check_existing=True)
-            albedo_img.colorspace_settings.name = "sRGB"
-        except Exception as exc:
-            print(f"WALLERMAX_TEXTURE_LOAD_FAIL: '{tex_path}' - {exc}")
-            albedo_img = None
+        # Check if it's an atlas reference: "atlas:room-1:3,5"
+        if isinstance(texture_image, str) and texture_image.startswith("atlas:"):
+            try:
+                parts = texture_image.split(":")
+                atlas_name = parts[1]
+                row_str, col_str = parts[2].split(",")
+                row, col = int(row_str), int(col_str)
+                albedo_img = extract_atlas_tile(atlas_name, row, col)
+                albedo_img.colorspace_settings.name = "sRGB"
+            except Exception as exc:
+                print(f"WALLERMAX_ATLAS_EXTRACT_FAIL: '{texture_image}' - {exc}")
+                albedo_img = None
+        else:
+            upload_dir = _CURRENT_UPLOAD_DIR
+            tex_path = resolve_texture_path(texture_image, upload_dir)
+            try:
+                albedo_img = bpy.data.images.load(tex_path, check_existing=True)
+                albedo_img.colorspace_settings.name = "sRGB"
+            except Exception as exc:
+                print(f"WALLERMAX_TEXTURE_LOAD_FAIL: '{tex_path}' - {exc}")
+                albedo_img = None
 
         if albedo_img is not None:
             scale = float(spec.get("pattern_scale", 1.0))
@@ -253,13 +347,21 @@ def make_material(name, spec):
             vec_out = uv_node.outputs["UV"]
             if scale != 1.0:
                 mapping = nt.nodes.new("ShaderNodeMapping")
-                mapping.inputs["Scale"].default_value = (scale, scale, 1.0)
+                # Set Scale via individual indices (more reliable than tuple assignment)
+                mapping.inputs["Scale"].default_value[0] = scale
+                mapping.inputs["Scale"].default_value[1] = scale
+                mapping.inputs["Scale"].default_value[2] = 1.0
                 nt.links.new(vec_out, mapping.inputs["Vector"])
                 vec_out = mapping.outputs["Vector"]
 
             albedo_tex = nt.nodes.new("ShaderNodeTexImage")
             albedo_tex.image = albedo_img
             albedo_tex.interpolation = "Smart"
+            # Explicitly set extension to REPEAT for tiling
+            try:
+                albedo_tex.extension = "REPEAT"
+            except Exception:
+                pass
             nt.links.new(vec_out, albedo_tex.inputs["Vector"])
             nt.links.new(albedo_tex.outputs["Color"], bsdf.inputs["Base Color"])
 
@@ -606,11 +708,18 @@ def apply_behavior(e, o, objs, scene):
         end_frame = max(1, int(float(b.get("duration", scene.frame_end / scene.render.fps)) * scene.render.fps))
         start_loc = o.location.copy()
         start_rot = list(o.rotation_euler)
-        # A2: Temporarily disable TRACK_TO constraint (it would overwrite
-        # rotation_euler every frame and silently cancel pan/tilt).
+        # A2 v2: REMOVE TRACK_TO constraint entirely for pan/tilt.
+        # The original A2 patch only temporarily disabled it, but re-enabling
+        # it caused the constraint to override the rotation_euler keyframes,
+        # preventing the pan/tilt from actually animating.
         track_constraints = [c for c in o.constraints if c.type == "TRACK_TO"]
         for c in track_constraints:
-            c.influence = 0.0
+            try:
+                o.constraints.remove(c)
+                print(f"WALLERMAX_TRACK_TO_REMOVED: object='{o.name}' (for {typ} behavior)")
+            except Exception as exc:
+                print(f"WALLERMAX_TRACK_TO_REMOVE_FAIL: '{o.name}' - {exc}")
+                c.influence = 0.0
         o.keyframe_insert("location", frame=1)
         o.keyframe_insert("rotation_euler", frame=1)
 
@@ -662,9 +771,9 @@ def apply_behavior(e, o, objs, scene):
             o.rotation_euler[2] = start_rot[2] + math.radians(float(b.get("angle", 30.0)))
         elif typ == "tilt":
             o.rotation_euler[0] = start_rot[0] + math.radians(float(b.get("angle", 30.0)))
-        # Re-enable the TRACK_TO constraint after we've set our own keyframes.
-        for c in track_constraints:
-            c.influence = 1.0
+        # NOTE: TRACK_TO was removed (not re-enabled) so our rotation keyframes
+        # are the sole controller of camera rotation. This is required for pan/tilt
+        # to actually animate.
         o.keyframe_insert("location", frame=end_frame)
         o.keyframe_insert("rotation_euler", frame=end_frame)
 
