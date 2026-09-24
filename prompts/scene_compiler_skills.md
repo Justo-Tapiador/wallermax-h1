@@ -1,4 +1,4 @@
-# Scene Compiler Skills — Wallermax H1 v1.0.1
+# Scene Compiler Skills — Wallermax H1 v1.2.0
 
 > This document is appended to the `SCENE_COMPILER_SYSTEM_PROMPT` when calling the LLM.
 > It contains patterns, anti-patterns, recipes, and concrete examples for generating
@@ -12,28 +12,35 @@
 ## 0. Mental model
 
 Wallermax H1 is **NOT** a general-purpose 3D modeler. It is a **procedural scene
-compiler** that turns a declarative JSON into a Blender scene using only primitive
-shapes (`box`, `sphere`, `cylinder`, `plane`, `room`, `light`, `camera`, `empty`).
+compiler** that turns a declarative JSON into a Blender scene using primitive
+shapes (`box`, `sphere`, `cylinder`, `plane`, `room`, `light`, `camera`, `empty`)
+and, since v1.2.0, **imported model assets** (`.glb`, `.obj`, `.fbx`, `.ply`).
 
 **What you CAN do:**
 - Compose scenes from primitives (a bed = 6 boxes)
+- Import external 3D models: `type: "model"` + `geometry.file` (v1.2.0)
 - Apply PBR textures (`texture_image`, `normal_image`, `roughness_image`)
-- Animate camera with behaviors (`orbit`, `dolly_in`, `pan`, `tilt`, `crane_up`)
+- Animate camera with behaviors (`orbit`, `dolly_in`, `pan`, `tilt`, `crane_up`,
+  `spline_path`, `zoom_in`, `zoom_out`) — v1.2.0 adds smooth spline flights
+  through waypoints and animated focal length
 - Animate lights and objects with events (keyframes on `position`, `energy`, `color`)
-- Use 4 render engines (EEVEE, EEVEE_NEXT, Cycles, fallback)
+- Use 4 render engines (EEVEE, EEVEE_NEXT, Cycles, fallback) with three quality
+  presets: `preview` (fast), `standard` (balanced), `cinematic` (filmic)
+- Light exteriors with the physical Nishita sky, or any scene with an HDRI
+  environment map (`environment.sky` / `environment.hdri`) — v1.2.0
 
 **What you CANNOT do:**
-- Import external 3D models (`.glb`, `.obj`, `.fbx`) — not supported
 - Boolean operations on geometry (no "subtracted" holes in walls)
 - Cloth simulation, hair, particles
 - Geometry Nodes or custom shaders (only Principled BSDF)
 - Volumetric lighting (no god rays, no fog volumes)
-- Custom mesh vertices (only procedural primitives)
+- Custom mesh vertices (only procedural primitives or imported models)
 
 **Embrace the constraints.** A great wallermax scene composes 20-50 primitives
-cleverly positioned, with good lighting and tasteful camera motion. It does NOT
-try to be photorealistic — it aims for **stylized realism** (low-poly architectural
-visualization quality).
+cleverly positioned (or a few imported assets), with physically motivated
+lighting (sky/HDRI/AREA lights) and tasteful camera motion. With `quality:
+"cinematic"` + Cycles + sky/HDRI the target is **believable architectural
+cinematography**, not low-poly.
 
 ---
 
@@ -711,12 +718,21 @@ Camera: crane_up 3m from [0, -8, 1] looking at [0, 0, 1.5].
 
 ---
 
-## 6. Render engine choice
+## 6. Render engine & quality choice
 
 | Engine | When to use | Samples | Speed |
 |---|---|---|---|
-| `BLENDER_EEVEE_NEXT` | Default, fast preview, interior scenes | 16-32 | Fast (5-30s/frame) |
+| `BLENDER_EEVEE_NEXT` | Default, fast preview, interior scenes | 16-32 (preview) / 64 (standard) / 128 (cinematic) | Fast (5-30s/frame) |
 | `CYCLES` | Photorealistic, GI/reflections/refraction | 64-256 | Slow (10-60s/frame) |
+
+**Quality presets (v1.2.0) — `render.quality`:**
+- `preview` — the old fast tuning (16 samples, cheap shadows, no motion blur).
+  Use only while iterating.
+- `standard` — 64 samples, soft shadows, SSR. Good default.
+- `cinematic` — motion blur (180° shutter), soft shadows, raytracing/GTAO,
+  128 EEVEE samples or 128+ Cycles samples with denoising, AgX color
+  management, subtle lens dispersion, high-quality video encoding.
+  **Use cinematic for final renders** — it is the single highest-impact setting.
 
 **Rules:**
 - Use `BLENDER_EEVEE_NEXT` for iteration and quick previews.
@@ -725,6 +741,8 @@ Camera: crane_up 3m from [0, -8, 1] looking at [0, 0, 1.5].
   - Reflective surfaces (metallic > 0.5)
   - Indirect lighting (light bouncing off colored walls)
   - Soft shadows
+- Combine `CYCLES` + `quality: "cinematic"` + `environment.sky` or
+  `environment.hdri` for the most realistic output the engine can produce.
 
 For Cycles, set `samples: 64` minimum (128 for production quality).
 
@@ -748,6 +766,12 @@ Before returning the World Model JSON, verify:
 - [ ] All `dimensions` are in meters (not cm or mm)
 - [ ] The `render.duration` matches the user's request
 - [ ] The `render.engine` matches the user's request (default `BLENDER_EEVEE_NEXT`)
+- [ ] The `render.quality` is `cinematic` for final/photorealistic requests
+      (or `preview` when the user asks for something fast)
+- [ ] `spline_path` waypoints stay INSIDE the room and at least 0.5m from
+      walls (same rule as the camera position)
+- [ ] If `spline_path` is used, the camera also has `target` or `look_at` so it
+      keeps framing the subject while flying
 
 If any check fails, fix it before emitting the JSON. Do not emit a World Model
 that you know will produce a broken render.
@@ -1113,3 +1137,150 @@ Before emitting a World Model that uses atlas textures, verify:
 - [ ] `base_color` is `[1, 1, 1, 1]` (white multiplier) for textured surfaces
 - [ ] No `texture_image` references to filenames (e.g. "wood.jpg") when using atlas
 
+
+---
+
+## 12. Cinematic toolkit (NEW in v1.2.0)
+
+These features exist specifically to raise renders from "preview" to
+"spectacular". Use them whenever the user asks for realistic, cinematic,
+photorealistic or high-quality output.
+
+### 12.1 Quality preset — the single highest-impact setting
+
+```jsonc
+"render": {
+  "engine": "CYCLES",            // or BLENDER_EEVEE_NEXT for faster finals
+  "quality": "cinematic",        // motion blur + 128 samples + AgX + denoise
+  "samples": 128,
+  "postprocess": true            // optional subtle sharpen+grade pass
+}
+```
+
+`cinematic` enables: motion blur (180° film shutter), soft shadows,
+SSR/raytracing, ambient occlusion, 128+ samples with OpenImageDenoise
+(Cycles), AgX filmic color management, subtle lens dispersion and
+high-quality H.264 encoding. Never emit `quality: "cinematic"` with
+`samples: 16` — the floor is handled automatically, but emit 128+ anyway.
+
+### 12.2 Physical sky (exteriors) — `environment.sky`
+
+```jsonc
+"environment": {
+  "ambient_intensity": 1.0,
+  "sky": {
+    "sun_elevation": 35,      // golden hour: 10-20, midday: 55-70
+    "sun_rotation": 135,      // azimuth; aim shadows INTO the camera view
+    "altitude": 500
+  }
+}
+```
+
+- Gives a physically believable sky gradient + sunlight in one block.
+- Golden hour (elevation 10-20°) is the most cinematic light there is.
+- In EEVEE a matching SUN light is auto-created; Cycles gets the sun from
+  the sky itself. Don't add a second SUN entity unless asked.
+
+### 12.3 HDRI environment (interiors + exteriors)
+
+If the user uploaded an `.hdr`/`.exr` environment map:
+
+```jsonc
+"environment": {
+  "hdri": { "path": "studio.hdr", "rotation_z": 90 },
+  "ambient_intensity": 1.0
+}
+```
+
+### 12.4 Spline camera flight — `behavior.type: "spline_path"`
+
+The most cinematic camera move: a smooth Bezier flight through waypoints
+while the TRACK_TO constraint keeps the subject framed. Use 3-6 waypoints.
+
+```jsonc
+{
+  "id": "camera",
+  "type": "camera",
+  "transform": { "position": [-2.2, -1.6, 1.6] },
+  "camera": {
+    "lens": 35,
+    "look_at": [0, 0, 1.0],
+    "dof_autofocus": true,          // subject stays sharp while flying
+    "dof_fstop": 2.8
+  },
+  "behavior": {
+    "type": "spline_path",
+    "duration": 8,
+    "easing": "ease_in_out",
+    "path": [
+      [-2.2, -1.6, 1.6],
+      [-1.0, -1.4, 1.7],
+      [ 1.2, -0.8, 1.5],
+      [ 2.0,  0.6, 1.4]
+    ]
+  }
+}
+```
+
+Rules:
+- Waypoints must be INSIDE the room (same rule as the camera position) and
+  keep 0.5m clearance from walls.
+- Always pair with `camera.target` or `camera.look_at` so the camera keeps
+  framing the subject (otherwise set nothing — it will follow the tangent).
+- `easing`: `ease_in_out` (default, filmic), `linear` (constant speed).
+
+### 12.5 Cinematic zoom — `behavior.type: "zoom_in"` / `"zoom_out"`
+
+```jsonc
+"behavior": { "type": "zoom_in", "lens_start": 35, "lens_end": 55, "duration": 6 }
+```
+
+A slow focal-length push (35→55mm over 6s) reads as premium documentary
+camera work. Don't exceed a 1.5x ratio or it looks like a snap zoom.
+
+### 12.6 Imported model assets — `type: "model"`
+
+If the user uploaded a 3D model (.glb/.gltf/.obj/.fbx/.ply):
+
+```jsonc
+{
+  "id": "hero_sofa",
+  "type": "model",
+  "provenance": "user_defined",
+  "confidence": 0.9,
+  "geometry": { "file": "sofa.glb" },
+  "transform": { "position": [0, -0.5, 0.35], "rotation": [0, 0, 15] }
+}
+```
+
+- Multi-object imports are parented under one root automatically — position
+  / rotate / scale the entity like any primitive.
+- If a `material` block is provided it OVERRIDES the imported materials;
+  omit it to keep the asset's own materials.
+- One hero asset + primitives for context beats fifty boxes.
+
+### 12.7 Cinematic aesthetic finish
+
+```jsonc
+"aesthetic": {
+  "mood": "golden",
+  "color_temperature_k": 5200,
+  "grain": 0.25,                  // 0.2-0.4 reads as 35mm film
+  "vignette": 0.35,
+  "bloom": 0.15,
+  "chromatic_aberration": 0.03
+}
+```
+
+All optional — each maps to a real compositor stage (grain is animated and
+deterministic). With no final-image reference, these defaults are tasteful.
+
+### 12.8 Putting it together — "cinematic flythrough" recipe
+
+1. `render.quality: "cinematic"` + engine Cycles (or EEVEE Next if speed matters)
+2. `environment.sky` (elevation 15-35) or `environment.hdri`
+3. Camera: `lens: 35`, `dof_autofocus: true`, `dof_fstop: 2.8`
+4. Behavior: `spline_path` with 3-6 waypoints + `look_at` at the subject
+5. Aesthetic: grain 0.25, vignette 0.3, chromatic_aberration 0.03
+6. Optional `zoom_in` slow push for the last seconds
+7. One or two light events (energy/color keyframes) for life in the scene

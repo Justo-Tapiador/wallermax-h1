@@ -347,6 +347,11 @@ export async function analyzeScene(req: PipelineRequest): Promise<AnalysisBundle
     duration: req.render.duration,
     engine: req.render.engine ?? "BLENDER_EEVEE_NEXT",
     samples: req.render.samples ?? 64,
+    // v1.2.0: the user's quality choice wins; otherwise keep the LLM's
+    // (the scene compiler may legitimately pick cinematic for a
+    // "photorealistic" prompt even when the form left it on standard).
+    quality: req.render.quality ?? world.world.render?.quality ?? "standard",
+    postprocess: req.render.postprocess ?? world.world.render?.postprocess,
   };
 
   // If the request duration differs from the LLM's proposed duration,

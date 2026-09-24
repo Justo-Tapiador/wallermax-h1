@@ -9,11 +9,87 @@ TypeScript project's npm packages.
 
 | File | Purpose | Dependencies |
 | --- | --- | --- |
-| `build_scene.py` | Full Blender compiler. Produces `.blend` + MP4 with PBR materials, real physics, perspective camera, aesthetic compositor. | Blender 3.6+ (uses `bpy`, `mathutils`) |
+| `build_scene.py` | Full Blender compiler. Produces `.blend` + MP4 with PBR materials, real physics, perspective camera, cinematic quality presets, HDRI/sky lighting, spline camera flights, aesthetic compositor. | Blender 3.6+ (uses `bpy`, `mathutils`) |
 | `fallback_renderer.py` | Preview renderer. Produces an MP4 + PNG poster using only Pillow + numpy + ffmpeg. Used automatically when Blender is not installed. | Python 3.10+, Pillow, numpy, ffmpeg |
 
 The Node.js server picks one of them at runtime via the
 `server/src/renderer.ts` module: Blender first, fallback second.
+
+---
+
+## Cinematic quality features (v1.2.0)
+
+All of the following are driven by the World Model JSON — no extra CLI
+arguments, fully LLM-controllable.
+
+### `world.render.quality` — preview | standard | cinematic
+
+| Setting | preview | standard | cinematic |
+|---|---|---|---|
+| EEVEE TAA render samples | 16 | 64 | 128 |
+| Soft shadows / SSR | off | on | on |
+| Raytracing + GTAO (EEVEE Next) | off | off | on |
+| Motion blur (180° shutter) | off | off | **on** |
+| Cycles samples (floor) | as requested | ≥48 | **≥128 + OIDN denoise** |
+| H.264 CRF | MEDIUM | MEDIUM | HIGH |
+
+`world.render.shutter` tunes the motion-blur shutter (default 0.5 = 180°,
+like a film camera). Cinematic is the single highest-impact setting for
+realistic output; combine with `engine: "CYCLES"` for maximum fidelity.
+
+### `world.environment.sky` — physical Nishita sky
+
+```jsonc
+"environment": { "sky": { "sun_elevation": 15, "sun_rotation": 135 } }
+```
+
+Elevation 10-20° = golden hour (the most cinematic light there is). In
+EEVEE a matching warm SUN light is auto-created; in Cycles the sky itself
+casts the sunlight.
+
+### `world.environment.hdri` — HDRI environment lighting
+
+```jsonc
+"environment": { "hdri": { "path": "studio.hdr", "rotation_z": 90 } }
+```
+
+Files resolve like textures (absolute path, upload dir, recursive walk).
+
+### Camera: `spline_path`, `zoom_in/out`, `dof_autofocus`
+
+```jsonc
+"behavior": {
+  "type": "spline_path",
+  "duration": 8,
+  "easing": "ease_in_out",
+  "path": [[-2.2,-1.6,1.6], [-1.0,-1.4,1.7], [1.2,-0.8,1.5], [2.0,0.6,1.4]]
+}
+```
+
+Waypoints become a smooth Bezier curve (auto handles ≈ Catmull-Rom).
+Pair with `camera.target`/`camera.look_at` so the subject stays framed;
+`camera.dof_autofocus: true` keeps it sharp while flying. `zoom_in` /
+`zoom_out` animate the focal length (`lens_start` → `lens_end`).
+
+### Model import — `type: "model"` + `geometry.file`
+
+Imports `.glb/.gltf/.obj/.fbx/.ply`. Multi-object imports are parented
+under one Empty root, so the entity's `transform` moves the whole asset.
+Provide a `material` block to override the imported materials, or omit it
+to keep them.
+
+### Compositor finishing stages
+
+Driven by `world.aesthetic`: `vignette` (now actually applied), `grain`
+(seeded, animated, deterministic), `chromatic_aberration` (subtle default
+in cinematic), `bloom` (Glare node — works in EEVEE Next), and a
+color-temperature grade from `color_temperature_k`. Exposure is applied
+pre-tonemap via AgX/Filmic view settings.
+
+### Optional MP4 finalize pass
+
+`world.render.postprocess: true` runs a conservative ffmpeg pass
+(unsharp + micro contrast/saturation lift) on the final MP4.
 
 ---
 

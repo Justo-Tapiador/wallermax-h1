@@ -301,6 +301,13 @@ export async function postPipeline(req: IncomingMessage, res: ServerResponse): P
       duration: Number(form.fields.duration) || config.defaultRender.duration,
       engine: (form.fields.engine as "BLENDER_EEVEE_NEXT" | "CYCLES") || "BLENDER_EEVEE_NEXT",
       samples: Number(form.fields.samples) || 16,
+      quality: (
+        form.fields.quality === "preview" ||
+        form.fields.quality === "standard" ||
+        form.fields.quality === "cinematic"
+      )
+        ? (form.fields.quality as "preview" | "standard" | "cinematic")
+        : undefined,
     },
     skipBlender:
       form.fields.skipBlender === "1" ||
@@ -348,6 +355,13 @@ export async function postPipelineSync(req: IncomingMessage, res: ServerResponse
       duration: (parsed.duration as number) || config.defaultRender.duration,
       engine: (parsed.engine as "BLENDER_EEVEE_NEXT" | "CYCLES") || "BLENDER_EEVEE_NEXT",
       samples: (parsed.samples as number) || 16,
+      quality: (
+        parsed.quality === "preview" ||
+        parsed.quality === "standard" ||
+        parsed.quality === "cinematic"
+      )
+        ? (parsed.quality as "preview" | "standard" | "cinematic")
+        : undefined,
     },
     skipBlender: parsed.skipBlender === true || config.skipBlender,
   };

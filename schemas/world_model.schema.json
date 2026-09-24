@@ -17,6 +17,31 @@
           "properties": {
             "gravity": { "type": "array", "items": { "type": "number" }, "default": [0, 0, -9.81] },
             "ambient_color": { "type": "array", "items": { "type": "number" } },
+            "ambient_intensity": { "type": "number", "default": 1.0, "description": "Strength of the world background / environment lighting." },
+            "hdri": {
+              "type": "object",
+              "description": "HDRI environment lighting (highest realism). Path resolves like textures (uploads included).",
+              "properties": {
+                "path": { "type": "string", "description": "Filename of an .hdr/.exr environment map (e.g. 'forest.hdr')." },
+                "rotation_z": { "type": "number", "description": "Environment rotation around Z, degrees." }
+              },
+              "required": ["path"]
+            },
+            "sky": {
+              "type": "object",
+              "description": "Nishita physical sky (exterior scenes). Provides believable sky gradient + sun. In EEVEE a matching SUN light is auto-created; in Cycles the sky itself casts sunlight.",
+              "properties": {
+                "sun_elevation": { "type": "number", "description": "Sun angle above the horizon, degrees (10-60 for daylight)." },
+                "sun_rotation": { "type": "number", "description": "Sun azimuth around Z, degrees." },
+                "altitude": { "type": "number", "description": "Meters above sea level (default 1000)." },
+                "air_density": { "type": "number", "description": "1.0 = default; higher = hazier." },
+                "dust_density": { "type": "number", "description": "1.0 = default." },
+                "ozone": { "type": "number", "description": "1.0 = default." },
+                "sun_strength": { "type": "number", "description": "Watts of the auto SUN light in EEVEE (default 3)." },
+                "sun_light": { "type": "boolean", "description": "Force-enable/disable the auto SUN light (EEVEE)." },
+                "color_temperature_k": { "type": "number", "description": "Sun color temperature (default 5500K)." }
+              }
+            },
             "depth_status": { "type": "string" },
             "depth_scale": { "type": "string" },
             "depth_message": { "type": "string" }
@@ -31,7 +56,11 @@
             "fps": { "type": "integer", "minimum": 1, "maximum": 240 },
             "duration": { "type": "number", "minimum": 0.1 },
             "engine": { "type": "string", "enum": ["BLENDER_EEVEE_NEXT", "CYCLES"], "default": "BLENDER_EEVEE_NEXT" },
-            "samples": { "type": "integer", "minimum": 1, "default": 64 }
+            "samples": { "type": "integer", "minimum": 1, "default": 64 },
+            "quality": { "type": "string", "enum": ["preview", "standard", "cinematic"], "default": "standard", "description": "preview = fast iteration; standard = soft shadows + SSR; cinematic = motion blur + GTAO/raytracing + 128+ samples + AgX + filmic shutter. Use cinematic for final renders." },
+            "shutter": { "type": "number", "minimum": 0.05, "maximum": 1, "default": 0.5, "description": "Motion-blur shutter (cinematic only). 0.5 = 180° film shutter." },
+            "compositor": { "type": "boolean", "default": true, "description": "Set false to skip the node-based compositor (headless/GPU-less machines) — vignette/grain move to the ffmpeg finishing pass." },
+            "postprocess": { "type": "boolean", "default": false, "description": "Optional ffmpeg finalize pass (subtle sharpen + micro grade) on the MP4." }
           }
         },
         "aesthetic": {
@@ -43,9 +72,10 @@
             "color_temperature_k": { "type": "number" },
             "mood": { "type": "string" },
             "style_tags": { "type": "array", "items": { "type": "string" } },
-            "grain": { "type": "number" },
-            "vignette": { "type": "number" },
-            "bloom": { "type": "number" },
+            "grain": { "type": "number", "minimum": 0, "maximum": 1, "description": "Film grain strength (0-1). 0.2-0.4 reads as 35mm film." },
+            "vignette": { "type": "number", "minimum": 0, "maximum": 1 },
+            "bloom": { "type": "number", "minimum": 0, "maximum": 1 },
+            "chromatic_aberration": { "type": "number", "minimum": 0, "maximum": 1, "description": "Lens dispersion (0-1). 0.02-0.1 for a subtle cinematic lens feel." },
             "exposure_ev": { "type": "number" }
           }
         }
@@ -60,7 +90,7 @@
           "id": { "type": "string", "pattern": "^[A-Za-z0-9_\\-]+$" },
           "type": {
             "type": "string",
-            "description": "room | sphere | ball | box | cube | cylinder | plane | light | camera | empty | group"
+            "description": "room | sphere | ball | box | cube | cylinder | plane | light | camera | empty | group | model"
           },
           "name": { "type": "string" },
           "provenance": { "type": "string", "enum": ["observed", "user_defined", "inferred", "creative"] },
@@ -83,7 +113,8 @@
               "dimensions": { "type": "array", "items": { "type": "number" } },
               "depth": { "type": "number" },
               "vertices": { "type": "array" },
-              "subdivisions": { "type": "integer" }
+              "subdivisions": { "type": "integer" },
+              "file": { "type": "string", "description": "External model to import (.glb/.gltf/.obj/.fbx/.ply). Resolved like textures (uploads included). Use with type 'model' for real-world assets." }
             }
           },
           "material": {
@@ -127,7 +158,8 @@
               "look_at": { "type": "array", "items": { "type": "number" } },
               "fov_deg": { "type": "number" },
               "dof_focus_distance": { "type": "number" },
-              "dof_fstop": { "type": "number" }
+              "dof_fstop": { "type": "number" },
+              "dof_autofocus": { "type": "boolean", "description": "Bind DOF focus to the tracked target/look_at so the subject stays sharp while the camera moves. Pairs beautifully with spline_path. Default f/2.8." }
             }
           },
           "physics": {
@@ -147,13 +179,17 @@
           "behavior": {
             "type": "object",
             "properties": {
-              "type": { "type": "string", "enum": ["static", "look_at", "follow", "orbit", "dolly_in", "dolly_out", "crane_up", "crane_down", "pan", "tilt", "custom"] },
+              "type": { "type": "string", "enum": ["static", "look_at", "follow", "orbit", "dolly_in", "dolly_out", "crane_up", "crane_down", "pan", "tilt", "spline_path", "zoom_in", "zoom_out", "custom"] },
               "target": { "type": "string", "description": "Entity id to track/orbit/follow." },
               "duration": { "type": "number", "description": "Duration in seconds for this behavior." },
               "angle": { "type": "number", "description": "Angle in degrees (for orbit/pan/tilt)." },
               "distance": { "type": "number", "description": "Distance in meters (for dolly_in/out, crane_up/down)." },
               "speed": { "type": "number" },
-              "path": { "type": "array", "description": "List of [x,y,z] waypoints for future spline_path/flythrough behavior." }
+              "path": { "type": "array", "items": { "type": "array", "items": { "type": "number" } }, "description": "List of [x,y,z] waypoints for spline_path — smooth Bezier flight. Combine with camera.target so the camera keeps framing the subject. 3-6 waypoints make a great cinematic dolly move." },
+              "easing": { "type": "string", "enum": ["linear", "ease_in", "ease_out", "ease_in_out"], "default": "ease_in_out", "description": "Temporal easing of the motion (spline_path, zoom)." },
+              "loop": { "type": "boolean", "description": "Close the spline into a loop (spline_path)." },
+              "lens_start": { "type": "number", "description": "Starting focal length in mm (zoom_in/zoom_out)." },
+              "lens_end": { "type": "number", "description": "Ending focal length in mm (zoom_in/zoom_out)." }
             }
           },
           "metadata": { "type": "object" }

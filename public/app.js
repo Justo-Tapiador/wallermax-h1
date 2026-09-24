@@ -24,6 +24,7 @@
     fps: $("fps"),
     duration: $("duration"),
     engine: $("engine"),
+    quality: $("quality"),
     samples: $("samples"),
     provider: $("provider"),
     skipBlender: $("skipBlender"),
@@ -215,6 +216,7 @@ Be physically plausible. If some information is not observable or explicitly spe
     fd.append("fps", el.fps.value);
     fd.append("duration", el.duration.value);
     fd.append("engine", el.engine.value);
+    fd.append("quality", el.quality.value);
     fd.append("samples", el.samples.value);
     fd.append("provider", el.provider.value);
     fd.append("skipBlender", el.skipBlender.checked ? "1" : "0");
