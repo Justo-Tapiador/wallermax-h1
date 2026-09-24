@@ -1143,6 +1143,84 @@ toggle the "Skip Blender" checkbox in the web UI. There is currently no
 
 ## Changelog
 
+### v1.2.0 — Cinematic quality patch
+
+The goal of this release is to lift the render ceiling from "decent preview"
+to "spectacular and realistic" without changing the architecture.
+
+**Render quality (biggest visual jump):**
+
+- **`world.render.quality` presets** — `preview | standard | cinematic`.
+  `cinematic` enables: motion blur (180° film shutter), soft shadows,
+  SSR/raytracing + GTAO, volumetric shadows, 128 EEVEE TAA samples or 128+
+  Cycles samples with OpenImageDenoise, larger shadow maps and
+  high-quality H.264 (CRF `HIGH`). A smart floor raises low sample counts
+  (e.g. the UI default 16) to the cinematic minimum automatically.
+- **Color management** — AgX (or Filmic on old builds) with a
+  medium-high-contrast look is now set explicitly; `aesthetic.exposure_ev`
+  is applied pre-tonemap in the view transform (colorimetrically correct)
+  instead of the post-tone compositor node.
+
+**Lighting realism:**
+
+- **`world.environment.hdri`** — HDRI environment maps (`.hdr`/`.exr`),
+  resolved like textures so uploads just work, with Z rotation.
+- **`world.environment.sky`** — Nishita physical sky (sun elevation /
+  rotation / altitude / air / dust / ozone). In EEVEE a matching SUN light
+  is auto-created; in Cycles the sky casts the sunlight itself.
+
+**Cinematic camera:**
+
+- **`behavior.type: "spline_path"`** — smooth Bezier flight through
+  waypoints (`behavior.path`) with a Follow Path constraint + easing
+  (`ease_in_out` by default). Pairs with `camera.target`/`look_at` so the
+  subject stays framed while the camera flies.
+- **`behavior.type: "zoom_in"/"zoom_out"`** — animated focal length
+  (`lens_start` → `lens_end`).
+- **`camera.dof_autofocus`** — binds DOF focus to the tracked target so
+  the subject stays sharp during motion (native `focus_object`).
+
+**Compositor fixes (the vignette was literally dead code):**
+
+- Vignette now actually multiplies the image (soft elliptical mask).
+- **Film grain** — seeded, deterministic, animated per frame.
+- **Chromatic aberration** (`aesthetic.chromatic_aberration`) — subtle
+  lens dispersion, on by default in cinematic mode.
+- **Color-temperature grade** from `aesthetic.color_temperature_k`.
+- **Bloom via the Glare node** — works in EEVEE Next where legacy bloom
+  was removed.
+
+**Assets & finishing:**
+
+- **Model import** — entities with `type: "model"` (or `geometry.file`)
+  import `.glb/.gltf/.obj/.fbx/.ply`. Multi-object imports are parented
+  under one root so the entity transforms the whole asset.
+- **`world.render.postprocess`** — optional ffmpeg finalize pass (subtle
+  unsharp + micro contrast/saturation lift) on the final MP4.
+
+**Server/UI:**
+
+- Quality selector in the web UI; `quality` flows through the HTTP API,
+  the pipeline and the scene analyzer (the user's choice wins, otherwise
+  the LLM's is preserved).
+
+**Bug fixes found while testing against a real Blender 5.2:**
+
+- **CRITICAL — engine selection silently ignored `CYCLES`:** the old code
+  only set an internal variable when the requested engine was Cycles but
+  never assigned `scene.render.engine`, so every Cycles request actually
+  rendered with the scene's default engine (EEVEE). Now every engine
+  candidate is genuinely assigned (with cross-version fallbacks).
+- The Blender 5.2 compositor is now reachable: `Scene.node_tree` was
+  removed in 5.2 (the old `_get_compositor_tree` always returned None
+  there) — the new `Scene.compositing_node_group` API is used, including
+  version-tolerant node creation (EllipseMask/Blur/Glare/ColorBalance
+  sockets changed shape in 5.2).
+- `world.render.compositor: false` — kill switch for headless/GPU-less
+  machines: skips the node compositor (Blender 5.x needs an EGL context
+  to evaluate it) and routes vignette/grain through the ffmpeg finishing
+  pass instead.
+
 ### v1.0.1 — PBR textures + camera fixes
 
 **New features:**
